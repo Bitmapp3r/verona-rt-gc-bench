@@ -15,11 +15,9 @@ struct Cell : public V<Cell> {
   void trace(ObjectStack& st) const {}
 };
 
-// NEW: A Root object that actually holds the pointers for the GC
 struct SimRoot : public V<SimRoot> {
   std::vector<Cell*> live_cells;
 
-  // Crucial: Tell the GC about the cells in the vector
   void trace(ObjectStack& st) const {
     for (auto* c : live_cells) {
       if (c) st.push(c);
@@ -47,11 +45,9 @@ inline void test_game_of_life(int size, int generations) {
   {
     UsingRegion rr(root);
 
-    // Logic vectors (C++ side)
     std::vector<Cell*> current_grid(size * size, nullptr);
     std::vector<Cell*> next_grid(size * size, nullptr);
 
-    // Initial Setup (Glider)
     auto set_cell = [&](int x, int y) {
       if (x < size && y < size)
         current_grid[y * size + x] = new Cell(x, y);
@@ -64,9 +60,6 @@ inline void test_game_of_life(int size, int generations) {
     set_cell(cx + 1, cy + 1);
     set_cell(cx + 1, cy + 2);
 
-
-
-    // CRITICAL FIX: Sync the C++ vector to the Root Object
     root->live_cells = current_grid;
 
     std::cout << "Game of Life initialized. Grid: " << size << "x" << size << "\n";
@@ -95,24 +88,23 @@ inline void test_game_of_life(int size, int generations) {
         }
       }
 
-      // Swap logic grids
       current_grid = next_grid;
 
-      // CRITICAL FIX: Update Root's reachability before GC
-      // This tells the GC: "These are the cells we want to KEEP"
-      // Anything previously in root->live_cells that isn't here anymore will be freed.
       root->live_cells = current_grid;
+
+      int heap_size = debug_size();
+      std::cout << "Heap size before region collect: " << heap_size << "\n";
 
       region_collect();
 
-      // Verify
       int actual_alive_count = 0;
       for(auto* c : current_grid) {
         if (c) actual_alive_count++;
       }
 
-      int heap_size = debug_size();
-      std::cout << heap_size << "\n";
+      heap_size = debug_size();
+      std::cout << "Heap size after region collect: " << heap_size << "\n";
+
 
       if (heap_size != actual_alive_count + 1) { // +1 for SimRoot
         std::cout << "FAILURE at Gen " << gen << "\n";
