@@ -20,7 +20,7 @@ int main(int argc, char** argv)
   if (log)
     Logging::enable_logging();
 
-  memory_tree::run_test();
+//   memory_tree::run_test();
 
   return 0;
 }

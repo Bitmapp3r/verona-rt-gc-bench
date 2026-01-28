@@ -3,7 +3,7 @@
 #pragma once
 
 #include "../memory/memory.h" // Mainly for the C1 objects
-#include "../binomial_heap/binomial_htree.h" // For Node objescts
+#include "../binomial_heap/binomial_tree.h" // For Node objescts
 
 namespace binomial_heap
 {
