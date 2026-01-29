@@ -1,3 +1,5 @@
+// Copyright Microsoft and Project Verona Contributors.
+// SPDX-License-Identifier: MIT
 #pragma once
 
 #include <debug/harness.h>
@@ -9,7 +11,7 @@ using namespace snmalloc;
 using namespace verona::rt;
 using namespace verona::rt::api;
 
-namespace gol
+namespace gol_rc
 {
   struct Cell : public V<Cell>
   {
@@ -52,8 +54,8 @@ namespace gol
 
   inline void run_test(int size, int generations)
   {
-    // Use our new container root
-    auto* root = new (RegionType::Trace) SimRoot();
+    // Use an RC-based region root
+    auto* root = new (RegionType::Rc) SimRoot();
 
     {
       UsingRegion rr(root);
@@ -66,7 +68,7 @@ namespace gol
           current_grid[y * size + x] = new Cell(x, y);
       };
 
-      // Initialize R-pentomino pattern
+      // Initialize R-pentomino pattern (matching original gol)
       int cx = size / 2;
       int cy = size / 2;
       set_cell(cx + 1, cy);
@@ -77,7 +79,7 @@ namespace gol
 
       root->live_cells = current_grid;
 
-      std::cout << "Game of Life initialized. Grid: " << size << "x" << size << "\n";
+      std::cout << "Game of Life (RC) initialized. Grid: " << size << "x" << size << "\n";
       check(debug_size() == 6);
 
       for (int gen = 0; gen < generations; gen++)
@@ -91,7 +93,7 @@ namespace gol
 
             if (current_cell)
             {
-              // Survive Rule (Allocates NEW to create garbage)
+              // Survive Rule
               if (neighbors == 2 || neighbors == 3)
                 next_grid[y * size + x] = new Cell(x, y);
               else
@@ -108,12 +110,24 @@ namespace gol
           }
         }
 
+        // RC MANUAL STEP: Decrement old generation before swapping
+        int heap_size = debug_size();
+        std::cout << "Heap size before region collect: " << heap_size << "\n";
+        for (auto* old_cell : current_grid)
+        {
+          if (old_cell)
+            decref(old_cell);
+        }
+
         current_grid = next_grid;
         root->live_cells = current_grid;
 
-        int heap_size = debug_size();
-        std::cout << "Heap size before region collect: " << heap_size << "\n";
+        // Reset next_grid for next pass
+        std::fill(next_grid.begin(), next_grid.end(), nullptr);
 
+
+
+        // Cycle collector verification
         region_collect();
 
         int actual_alive_count = 0;
@@ -127,14 +141,17 @@ namespace gol
         std::cout << "Heap size after region collect: " << heap_size << "\n";
 
         if (heap_size != actual_alive_count + 1)
-        {  // +1 for SimRoot
+        {
           std::cout << "FAILURE at Gen " << gen << "\n";
           std::cout << "Heap: " << heap_size << " | Expected: " << (actual_alive_count + 1) << "\n";
           check(heap_size == actual_alive_count + 1);
         }
       }
-      std::cout << "Simulation survived " << generations << " generations.\n";
+
+
+      std::cout << "Simulation (RC) survived " << generations << " generations.\n";
     }
+
     region_release(root);
     heap::debug_check_empty();
   }
@@ -143,5 +160,4 @@ namespace gol
   {
     run_test(8, 10);
   }
-
 }

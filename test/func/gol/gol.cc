@@ -1,12 +1,28 @@
+// Copyright Microsoft and Project Verona Contributors.
+// SPDX-License-Identifier: MIT
 #include "gol.h"
+#include "gol_rc.h"
+#include <debug/harness.h>
+#include <test/opt.h>
 
-int main(int argc, char** argv) {
-    // Standard Verona test harness setup
-    opt::Opt opt(argc, argv);
+int main(int argc, char** argv)
+{
+  opt::Opt opt(argc, argv);
+  // Parses `--seed` option with default of 0
+  size_t seed = opt.is<size_t>("--seed", 0);
+  UNUSED(seed); // Not used for now
 
-    // Run a 20x20 grid for 100 generations
-    // This creates high churn without taking too long
-    test_game_of_life(20, 100);
+#ifdef CI_BUILD
+  auto log = true;
+#else
+  auto log = opt.has("--log-all");
+#endif
 
-    return 0;
+  if (log)
+    Logging::enable_logging();
+    gol::run_test();
+    std::cout << "We're running 2nd file" << std::endl;
+    gol_rc::run_test();
+
+  return 0;
 }
