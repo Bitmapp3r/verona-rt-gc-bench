@@ -12,6 +12,16 @@
 #include <vector>
 #include <verona.h>
 
+template <typename T>
+const T& random_element(const std::unordered_set<T>& s) {
+  static thread_local std::mt19937 gen{std::random_device{}()};
+  std::uniform_int_distribution<size_t> dist(0, s.size() - 1);
+
+  auto it = s.begin();
+  std::advance(it, dist(gen));  // O(n)
+  return *it;
+}
+
 inline int num_nodes = 0;
 class Node : public V<Node>{
 public:
@@ -121,6 +131,12 @@ void kill_node(Node* src, Node* dst) {
 }
 
 inline void fully_connect(const ONodes* o_nodes)
+// THIS WILL NOT WORK IF YOU HAVE AN EVEN NUMBER OF NODES
+// THIS WILL LEAD TO A EUCLIDEAN GRAPH
+// YOU WILL NOT GET STUCK ANYWHERE AND WILL ALWAYS BE ABLE
+// TO RETURN BACK TO THE ROOT NODE
+// MODIFY LATER TO ONLY CONNECT A SMALL PROPORTION OF NODES
+// TODO
 {
   for (Node* u : o_nodes->nodes)
   {
@@ -157,5 +173,49 @@ void createGraph(int size, int regions)
     }
 
     o_root->o_nodeses.push_back(o_nodes);
+  }
+}
+
+bool removeArc(Node* src, Node* dst)
+{
+  if (!src || !dst) return false;
+
+  if (src->nodes.find(dst) != src->nodes.end())
+  {
+    src->nodes.erase(dst);
+    return true;
+  }
+  return false;
+}
+
+Node* traverse(Node* cur, Node* dst)
+{
+  if (removeArc(cur, dst))
+  {
+    cur = dst;
+    return dst;
+  }
+  return nullptr;
+}
+
+void traverse_region(ONodes* o_nodes)
+{
+  auto nodes = o_nodes->nodes;
+  while (!nodes.empty())
+  {
+    Node* cur = nodes.front();
+    auto temp = nodes.front();
+    nodes.front() = nodes.back();
+    nodes.back() = temp;
+    while (cur)
+    {
+      nodes.erase(
+        std::remove(
+          nodes.begin(), nodes.end(), cur),
+          nodes.end()
+          );
+      Node* dst = random_element(cur->nodes);
+      cur = traverse(cur, dst);
+    }
   }
 }
