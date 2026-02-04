@@ -4,6 +4,8 @@
 
 #include "freeze.h"
 #include "region.h"
+#include <test/measuretime.h>
+#include <debug/logging.h>
 
 namespace verona::rt::api
 {
@@ -267,6 +269,7 @@ namespace verona::rt::api
 
   inline void region_collect()
   {
+    MeasureTime m(true);
     switch (Region::get_type(RegionContext::get_region()))
     {
       case RegionType::Trace:
@@ -282,6 +285,7 @@ namespace verona::rt::api
           (RegionRc*)RegionContext::get_region());
         break;
     }
+    Logging::cout() << "Region GC/Dealloc time: " << m.get_time().count() << " ns" << Logging::endl;
   }
 
   template<typename T = Object>

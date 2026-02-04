@@ -20,8 +20,9 @@ int main(int argc, char** argv)
 
   if (log)
     Logging::enable_logging();
+    std::cout << "Running with trace region" << std::endl;
     gol::run_test();
-    std::cout << "We're running 2nd file" << std::endl;
+    std::cout << "Running with rc region" << std::endl;
     gol_rc::run_test();
 
   return 0;

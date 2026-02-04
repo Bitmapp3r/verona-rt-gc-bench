@@ -170,7 +170,12 @@ namespace verona::rt
     {
       if (decref_inner(o))
       {
-        dealloc_object(o, reg);
+        dealloc_object(o, reg); // Comment out for region_collect benchmarks
+
+        // Uncomment for region_collect benchmarks
+        // Add to lins_stack so GC can find and collect it
+        // o->set_rc_colour(RcColour::BLACK);
+        // reg->lins_stack.push(o);
         return true;
       }
 
@@ -229,6 +234,17 @@ namespace verona::rt
       while (!reg->lins_stack.empty())
       {
         auto p = reg->lins_stack.pop();
+
+        // Uncomment for region_collect benchmarks
+        // // Handle RC=0 objects directly (acyclic garbage)
+        // if (get_ref_count(p) == 0)
+        // {
+        //   p->finalise(nullptr, jump_stack);
+        //   reg->region_size -= 1;
+        //   p->destructor();
+        //   p->dealloc();
+        //   continue;
+        // }
 
         if (p->get_rc_colour() == RcColour::BLACK)
         {
