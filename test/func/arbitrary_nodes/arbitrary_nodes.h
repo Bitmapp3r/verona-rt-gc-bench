@@ -1,25 +1,32 @@
 #pragma once
 
 #include "func/ext_ref/ext_ref_basic.h"
+#include "region/region_api.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <debug/harness.h>
 #include <iostream>
 #include <queue>
 #include <random>
-#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 #include <verona.h>
 
+namespace arbitrary_nodes {
+
 template <typename T>
 const T& random_element(const std::unordered_set<T>& s) {
-  static thread_local std::mt19937 gen{std::random_device{}()};
-  std::uniform_int_distribution<size_t> dist(0, s.size() - 1);
+    if (s.empty()) {
+        throw std::out_of_range("random_element: empty set");
+    }
 
-  auto it = s.begin();
-  std::advance(it, dist(gen));  // O(n)
-  return *it;
+    static thread_local std::mt19937 gen{std::random_device{}()};
+    std::uniform_int_distribution<size_t> dist(0, s.size() - 1);
+
+    auto it = s.begin();
+    std::advance(it, dist(gen));
+    return *it;
 }
 
 inline int num_nodes = 0;
@@ -35,7 +42,7 @@ public:
   void trace(ObjectStack& st) const {
     for (Node* node : nodes)
     {
-      if (not (node == nullptr))
+      if (node != nullptr)
         st.push(node);
     }
   }
@@ -52,7 +59,7 @@ struct ONodes : public V<ONodes>
   {
     for (Node* node : nodes)
     {
-      if (node == nullptr)
+      if (node != nullptr)
         st.push(node);
     }
   }
@@ -68,7 +75,7 @@ struct ORoot : public V<ORoot>
   {
     for (ONodes* o_nodes : o_nodeses)
     {
-      if (o_nodes == nullptr)
+      if (o_nodes != nullptr)
         st.push(o_nodes);
     }
   }
@@ -156,7 +163,12 @@ void createGraph(int size, int regions)
 {
   o_root = new (RegionType::Trace) ORoot;
   std::vector<size_t> region_sizes = random_regions(regions, size);
-
+  std::cout << "Region sizes: ";
+  for (size_t size : region_sizes)
+  {
+      std::cout << size << " ";
+  }
+  std::cout << std::endl;
   std::vector<ONodes*> otraces = std::vector<ONodes*>(regions);
   for (size_t region_size : region_sizes)
   {
@@ -192,7 +204,7 @@ Node* traverse(Node* cur, Node* dst)
 {
   if (removeArc(cur, dst))
   {
-    cur = dst;
+    std::cout << "Traversed from " << cur << " to " << dst << std::endl;
     return dst;
   }
   return nullptr;
@@ -200,22 +212,45 @@ Node* traverse(Node* cur, Node* dst)
 
 void traverse_region(ONodes* o_nodes)
 {
+  UsingRegion ur(o_nodes);
+  std::cout << "Traversing region" << std::endl;
   auto nodes = o_nodes->nodes;
   while (!nodes.empty())
   {
     Node* cur = nodes.front();
-    auto temp = nodes.front();
-    nodes.front() = nodes.back();
-    nodes.back() = temp;
-    while (cur)
+    while (cur && cur->nodes.size() > 0)
     {
+      Node* dst = random_element(cur->nodes);
       nodes.erase(
         std::remove(
           nodes.begin(), nodes.end(), cur),
           nodes.end()
           );
-      Node* dst = random_element(cur->nodes);
       cur = traverse(cur, dst);
     }
   }
+  int debug_size = verona::rt::api::debug_size();
+  
+  region_collect();
+  int new_debug_size = verona::rt::api::debug_size();
+  std::cout << "Debug size before: " << debug_size << std::endl;
+  std::cout << "Debug size after: " << new_debug_size << std::endl;
 }
+
+void run_test(int size, int regions)
+{
+    createGraph(size, regions);
+
+    for (ONodes* o_nodes : o_root->o_nodeses)
+    {
+        traverse_region(o_nodes);
+    }
+}
+
+inline void run_test()
+{
+  // Placeholder test function
+  std::cout << "Running arbitrary_nodes test...\n";
+}
+
+} // namespace arbitrary_nodes
