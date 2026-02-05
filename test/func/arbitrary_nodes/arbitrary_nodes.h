@@ -102,10 +102,15 @@ int numInaccessible(Node* root) {
 }
 
 
-std::vector<size_t> random_regions(size_t regions, size_t size) {
+  std::vector<size_t> random_regions(size_t regions, size_t size) {
+  if (regions > size)
+    throw std::invalid_argument("regions must be <= size");
+
   std::random_device rd;
   std::mt19937 gen(rd());
-  std::uniform_int_distribution<size_t> dist(0, size);
+
+  // We choose cuts in [1, size-1], not including 0 or size
+  std::uniform_int_distribution<size_t> dist(1, size - 1);
 
   std::vector<size_t> cuts(regions + 1);
   cuts[0] = 0;
@@ -118,13 +123,13 @@ std::vector<size_t> random_regions(size_t regions, size_t size) {
   std::sort(cuts.begin(), cuts.end());
 
   std::vector<size_t> result(regions);
-  for (size_t i = 0; i < regions; ++i)
-  {
-    result[i] = cuts[i + 1] - cuts[i];
+  for (size_t i = 0; i < regions; ++i) {
+    result[i] = cuts[i + 1] - cuts[i]; // always >= 1
   }
 
   return result;
 }
+
 
 
 void kill_node(Node* src, Node* dst) {
@@ -168,6 +173,7 @@ void createGraph(int size, int regions)
   std::vector<ONodes*> otraces = std::vector<ONodes*>(regions);
   for (size_t region_size : region_sizes)
   {
+    if (region_size == 0) continue;
     ONodes* o_nodes = new (RegionType::Trace) ONodes();
     {
       UsingRegion ur(o_nodes);
@@ -241,6 +247,7 @@ void traverse_region(ONodes* o_nodes)
 void run_test(int size, int regions)
 {
     createGraph(size, regions);
+  std::cout << "got here";
 
     for (ONodes* o_nodes : o_root->o_nodeses)
     {
