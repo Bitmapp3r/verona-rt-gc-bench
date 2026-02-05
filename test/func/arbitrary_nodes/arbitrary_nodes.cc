@@ -29,14 +29,15 @@ int main(int argc, char** argv) {
   // Enable logging if requested
   if (enable_log) {
     Logging::enable_logging();
-    
+
     size_t runs = 5;
     size_t warmup_runs = 10;
 
-    std::cout << "Running arbitrary nodes benchmark" << std::endl;
+        std::cout << "Running arbitrary nodes benchmark" << std::endl;
     GCBenchmark benchmark;
-    benchmark.run_benchmark([]() { arbitrary_nodes::run_test(3, 1); }, runs, warmup_runs);
+    benchmark.run_benchmark([size, regions]() { arbitrary_nodes::run_test(size, regions); }, runs, warmup_runs);
     benchmark.print_summary("Arbitrary Nodes");
-    
+
     return 0;
+  }
 }
