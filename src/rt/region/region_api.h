@@ -6,6 +6,7 @@
 #include "region.h"
 #include <test/measuretime.h>
 #include <debug/logging.h>
+#include <functional>
 
 namespace verona::rt::api
 {
@@ -21,12 +22,30 @@ namespace verona::rt::api
       };
 
       RegionFrame* top;
+      std::function<void(uint64_t, RegionType)>* gc_callback;
 
     public:
       static RegionContext& get_region_context()
       {
         static thread_local RegionContext context;
         return context;
+      }
+ 
+      /**
+       * Set a GC measurement callback for this thread's region context.
+       * Pass nullptr to disable collection and return to default logging.
+       */
+      static void set_gc_callback(std::function<void(uint64_t, RegionType)>* callback)
+      {
+        get_region_context().gc_callback = callback;
+      }
+
+      /**
+       * Get the current GC measurement callback, or nullptr if none is set.
+       */
+      static std::function<void(uint64_t, RegionType)>* get_gc_callback()
+      {
+        return get_region_context().gc_callback;
       }
 
       static void push(Object* entry_point, RegionBase* region)
@@ -228,7 +247,22 @@ namespace verona::rt::api
   inline void decref(Object* o)
   {
     assert(Region::get_type(RegionContext::get_region()) == RegionType::Rc);
+    MeasureTime m(true);
     RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
+    
+    uint64_t duration_ns = m.get_time().count();
+    auto* callback = RegionContext::get_gc_callback();
+    
+    if (callback != nullptr)
+    {
+      // Route measurement to callback (for testing/metrics gathering)
+      (*callback)(duration_ns, RegionType::Rc);
+    }
+    else
+    {
+      // Default logging behavior
+      Logging::cout() << "Decref time: " << duration_ns << " ns" << Logging::endl;
+    }
   }
 
   template<typename T = Object>
@@ -270,7 +304,9 @@ namespace verona::rt::api
   inline void region_collect()
   {
     MeasureTime m(true);
-    switch (Region::get_type(RegionContext::get_region()))
+    RegionType type = Region::get_type(RegionContext::get_region());
+    
+    switch (type)
     {
       case RegionType::Trace:
         // Other roots?
@@ -285,13 +321,42 @@ namespace verona::rt::api
           (RegionRc*)RegionContext::get_region());
         break;
     }
-    Logging::cout() << "Region GC/Dealloc time: " << m.get_time().count() << " ns" << Logging::endl;
+    
+    uint64_t duration_ns = m.get_time().count();
+    auto* callback = RegionContext::get_gc_callback();
+    
+    if (callback != nullptr)
+    {
+      // Route measurement to callback (for testing/metrics gathering)
+      (*callback)(duration_ns, type);
+    }
+    else
+    {
+      // Default logging behavior
+      Logging::cout() << "Region GC/Dealloc time: " << duration_ns << " ns" << Logging::endl;
+    }
   }
 
   template<typename T = Object>
   inline void region_release(Object* r)
   {
+    MeasureTime m(true);
+    RegionType type = Region::get_type(r->get_region());
     Region::release(r);
+
+    uint64_t duration_ns = m.get_time().count();
+    auto* callback = RegionContext::get_gc_callback();
+
+    if (callback != nullptr)
+    {
+      // Route measurement to callback (for testing/metrics gathering)
+      (*callback)(duration_ns, type);
+    }
+    else
+    {
+      // Default logging behavior
+      Logging::cout() << "Region release time: " << duration_ns << " ns" << Logging::endl;
+    }
   }
 
   /**
