@@ -12,6 +12,8 @@
 #include <vector>
 #include <verona.h>
 
+namespace arbitrary_nodes {
+
 template <typename T>
 const T& random_element(const std::unordered_set<T>& s) {
   static thread_local std::mt19937 gen{std::random_device{}()};
@@ -219,3 +221,11 @@ void traverse_region(ONodes* o_nodes)
     }
   }
 }
+
+inline void run_test()
+{
+  // Placeholder test function
+  std::cout << "Running arbitrary_nodes test...\n";
+}
+
+} // namespace arbitrary_nodes
