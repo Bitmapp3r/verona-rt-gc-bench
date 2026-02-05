@@ -50,18 +50,14 @@ public:
 
 struct ONodes : public V<ONodes>
 // This is a single region
-// This single region contains many nodes
-// Hence the name ONodes
+// This holds just the bridge node of that region
 {
-  std::vector<Node*> nodes;
+  Node* bridge;
 
   void trace(ObjectStack& st) const
   {
-    for (Node* node : nodes)
-    {
-      if (node != nullptr)
-        st.push(node);
-    }
+    if (bridge != nullptr)
+      st.push(bridge);
   }
 };
 
@@ -137,7 +133,7 @@ void kill_node(Node* src, Node* dst) {
   src->nodes.erase(dst);
 }
 
-inline void fully_connect(const ONodes* o_nodes)
+inline void fully_connect(const std::vector<Node*>& nodes)
 // THIS WILL NOT WORK IF YOU HAVE AN EVEN NUMBER OF NODES
 // THIS WILL LEAD TO A EUCLIDEAN GRAPH
 // YOU WILL NOT GET STUCK ANYWHERE AND WILL ALWAYS BE ABLE
@@ -145,11 +141,11 @@ inline void fully_connect(const ONodes* o_nodes)
 // MODIFY LATER TO ONLY CONNECT A SMALL PROPORTION OF NODES
 // TODO
 {
-  for (Node* u : o_nodes->nodes)
+  for (Node* u : nodes)
   {
     if (u == nullptr) continue;
 
-    for (Node* v : o_nodes->nodes)
+    for (Node* v : nodes)
     {
       if (v == nullptr) continue;
       if (u == v) continue;
@@ -175,13 +171,20 @@ void createGraph(int size, int regions)
     ONodes* o_nodes = new (RegionType::Trace) ONodes();
     {
       UsingRegion ur(o_nodes);
-      for (size_t i = 0; i != region_size; i++)
+      Node* bridge = new Node();
+      o_nodes->bridge = bridge;
+
+      // local vector of nodes in this region
+      std::vector<Node*> all_nodes;
+      all_nodes.push_back(bridge);
+
+      for (size_t i = 0; i != region_size - 1; i++)
       {
         Node* node = new Node();
-        o_nodes->nodes.push_back(node);
+        all_nodes.push_back(node);
       }
 
-      fully_connect(o_nodes);
+      fully_connect(all_nodes);
     }
 
     o_root->o_nodeses.push_back(o_nodes);
@@ -214,23 +217,21 @@ void traverse_region(ONodes* o_nodes)
 {
   UsingRegion ur(o_nodes);
   std::cout << "Traversing region" << std::endl;
-  auto nodes = o_nodes->nodes;
-  while (!nodes.empty())
+  Node* cur = o_nodes->bridge;
+
+  while (cur && cur->nodes.size() > 0)
   {
-    Node* cur = nodes.front();
-    while (cur && cur->nodes.size() > 0)
-    {
-      Node* dst = random_element(cur->nodes);
-      nodes.erase(
-        std::remove(
-          nodes.begin(), nodes.end(), cur),
-          nodes.end()
-          );
-      cur = traverse(cur, dst);
-    }
-  }
+    std::cout << "Current node: " << cur << " has " << cur->nodes.size() << " outgoing edges" << std::endl;
+    Node* dst = random_element(cur->nodes);
+    // nodes.erase(
+    //   std::remove(
+    //     nodes.begin(), nodes.end(), cur),
+    //     nodes.end()
+    // );
+    cur = traverse(cur, dst);
+  }  
+
   int debug_size = verona::rt::api::debug_size();
-  
   region_collect();
   int new_debug_size = verona::rt::api::debug_size();
   std::cout << "Debug size before: " << debug_size << std::endl;

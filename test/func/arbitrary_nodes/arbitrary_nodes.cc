@@ -7,6 +7,6 @@ int main(int argc, char** argv) {
     opt::Opt opt(argc, argv);
     
     Logging::enable_logging();
-    run_test(3, 1);
+    arbitrary_nodes::run_test(1, 2);
     return 0;
 }
