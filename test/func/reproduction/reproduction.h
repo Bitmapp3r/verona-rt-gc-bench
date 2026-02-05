@@ -12,7 +12,7 @@
 #define DECREF(o) if constexpr (rt == RegionType::Rc) decref(o);
 #define TRANSFER(o) if constexpr (rt == RegionType::Rc) incref(o); decref(o);
 
-const RegionType rt = RegionType::Trace;
+const RegionType rt = RegionType::Arena;
 
 class Node : public V<Node> {
 public: 
