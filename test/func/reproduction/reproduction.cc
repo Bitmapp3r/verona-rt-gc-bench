@@ -1,3 +1,5 @@
+// Copyright Microsoft and Project Verona Contributors.
+// SPDX-License-Identifier: MIT
 #include "reproduction.h"
 
 int main(int argc, char** argv)

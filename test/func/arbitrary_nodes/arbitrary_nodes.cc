@@ -1,3 +1,5 @@
+// Copyright Microsoft and Project Verona Contributors.
+// SPDX-License-Identifier: MIT
 #include "arbitrary_nodes.h"
 
 #include "debug/logging.h"
