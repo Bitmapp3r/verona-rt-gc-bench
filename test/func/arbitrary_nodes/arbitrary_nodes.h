@@ -38,7 +38,7 @@ namespace arbitrary_nodes
   class Node : public V<Node>
   {
   public:
-    std::unordered_set<Node*> nodes;
+    std::unordered_set<Node*> neighbours;
     int id;
 
     Node()
@@ -47,7 +47,7 @@ namespace arbitrary_nodes
     }
     void trace(ObjectStack& st) const
     {
-      for (Node* node : nodes)
+      for (Node* node : neighbours)
       {
         if (node != nullptr)
           st.push(node);
@@ -55,7 +55,7 @@ namespace arbitrary_nodes
     }
   };
 
-  struct ONodes : public V<ONodes>
+  struct GraphRegion : public V<GraphRegion>
   // This is a single region
   // This holds just the bridge node of that region
   {
@@ -68,48 +68,22 @@ namespace arbitrary_nodes
     }
   };
 
-  struct ORoot : public V<ORoot>
+  struct RegionRoot : public V<RegionRoot>
   // This is the root of all the other regions
-  // All the other regions are ONodes
-  // Hence it contains an o_nodeses
+  // All the other regions are GraphRegion
   {
-    std::vector<ONodes*> o_nodeses;
+    std::vector<GraphRegion*> graphRegions;
     void trace(ObjectStack& st) const
     {
-      for (ONodes* o_nodes : o_nodeses)
+      for (GraphRegion* graphRegion : graphRegions)
       {
-        if (o_nodes != nullptr)
-          st.push(o_nodes);
+        if (graphRegion != nullptr)
+          st.push(graphRegion);
       }
     }
   };
 
-  inline ORoot* o_root;
-
-  int numInaccessible(Node* root)
-  {
-    std::unordered_set<Node*> seen;
-    std::queue<Node*> next;
-    next.push(root);
-    while (!next.empty())
-    {
-      Node* cur = next.front();
-      next.pop();
-      if (seen.find(cur) != seen.end())
-      { // if already seen
-        continue;
-      }
-      seen.insert(cur); // not seen yet
-      for (Node* node : cur->nodes)
-      {
-        if (node && seen.find(node) == seen.end())
-        {
-          next.push(node);
-        }
-      }
-    }
-    return num_nodes - seen.size();
-  }
+  inline RegionRoot* root;
 
   std::vector<size_t> random_regions(size_t regions, size_t size)
   {
@@ -144,9 +118,9 @@ namespace arbitrary_nodes
 
   void kill_node(Node* src, Node* dst)
   {
-    if (src->nodes.find(dst) != src->nodes.end())
+    if (src->neighbours.find(dst) != src->neighbours.end())
       return;
-    src->nodes.erase(dst);
+    src->neighbours.erase(dst);
   }
 
   inline void fully_connect(const std::vector<Node*>& nodes)
@@ -169,14 +143,14 @@ namespace arbitrary_nodes
         if (u == v)
           continue;
 
-        u->nodes.insert(v);
+        u->neighbours.insert(v);
       }
     }
   }
 
   void createGraph(int size, int regions)
   {
-    o_root = new (RegionType::Trace) ORoot;
+    root = new (RegionType::Trace) RegionRoot;
     std::vector<size_t> region_sizes = random_regions(regions, size);
     std::cout << "Region sizes: ";
     for (size_t size : region_sizes)
@@ -184,16 +158,16 @@ namespace arbitrary_nodes
       std::cout << size << " ";
     }
     std::cout << std::endl;
-    std::vector<ONodes*> otraces = std::vector<ONodes*>(regions);
+    std::vector<GraphRegion*> otraces = std::vector<GraphRegion*>(regions);
     for (size_t region_size : region_sizes)
     {
       if (region_size == 0)
         continue;
-      ONodes* o_nodes = new (RegionType::Trace) ONodes();
+      GraphRegion* graphRegion = new (RegionType::Trace) GraphRegion();
       {
-        UsingRegion ur(o_nodes);
+        UsingRegion ur(graphRegion);
         Node* bridge = new Node();
-        o_nodes->bridge = bridge;
+        graphRegion->bridge = bridge;
 
         // local vector of nodes in this region
         std::vector<Node*> all_nodes;
@@ -208,7 +182,7 @@ namespace arbitrary_nodes
         fully_connect(all_nodes);
       }
 
-      o_root->o_nodeses.push_back(o_nodes);
+      root->graphRegions.push_back(graphRegion);
     }
   }
 
@@ -217,9 +191,9 @@ namespace arbitrary_nodes
     if (!src || !dst)
       return false;
 
-    if (src->nodes.find(dst) != src->nodes.end())
+    if (src->neighbours.find(dst) != src->neighbours.end())
     {
-      src->nodes.erase(dst);
+      src->neighbours.erase(dst);
       return true;
     }
     return false;
@@ -235,22 +209,17 @@ namespace arbitrary_nodes
     return nullptr;
   }
 
-  void traverse_region(ONodes* o_nodes)
+  void traverse_region(GraphRegion* graphRegion)
   {
-    UsingRegion ur(o_nodes);
+    UsingRegion ur(graphRegion);
     std::cout << "Traversing region" << std::endl;
-    Node* cur = o_nodes->bridge;
+    Node* cur = graphRegion->bridge;
 
-    while (cur && cur->nodes.size() > 0)
+    while (cur && cur->neighbours.size() > 0)
     {
-      std::cout << "Current node: " << cur << " has " << cur->nodes.size()
+      std::cout << "Current node: " << cur << " has " << cur->neighbours.size()
                 << " outgoing edges" << std::endl;
-      Node* dst = random_element(cur->nodes);
-      // nodes.erase(
-      //   std::remove(
-      //     nodes.begin(), nodes.end(), cur),
-      //     nodes.end()
-      // );
+      Node* dst = random_element(cur->neighbours);
       cur = traverse(cur, dst);
     }
 
@@ -266,9 +235,9 @@ namespace arbitrary_nodes
     createGraph(size, regions);
     std::cout << "got here";
 
-    for (ONodes* o_nodes : o_root->o_nodeses)
+    for (GraphRegion* graphRegion : root->graphRegions)
     {
-      traverse_region(o_nodes);
+      traverse_region(graphRegion);
     }
   }
 
