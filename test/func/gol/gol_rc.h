@@ -3,9 +3,9 @@
 #pragma once
 
 #include <debug/harness.h>
-#include <verona.h>
-#include <vector>
 #include <iostream>
+#include <vector>
+#include <verona.h>
 
 using namespace snmalloc;
 using namespace verona::rt;
@@ -34,7 +34,8 @@ namespace gol_rc
     }
   };
 
-  inline int count_neighbors(const std::vector<Cell*>& grid, int size, int x, int y)
+  inline int
+  count_neighbors(const std::vector<Cell*>& grid, int size, int x, int y)
   {
     int count = 0;
     for (int dy = -1; dy <= 1; dy++)
@@ -79,7 +80,8 @@ namespace gol_rc
 
       root->live_cells = current_grid;
 
-      std::cout << "Game of Life (RC) initialized. Grid: " << size << "x" << size << "\n";
+      std::cout << "Game of Life (RC) initialized. Grid: " << size << "x"
+                << size << "\n";
       check(debug_size() == 6);
 
       for (int gen = 0; gen < generations; gen++)
@@ -125,8 +127,6 @@ namespace gol_rc
         // Reset next_grid for next pass
         std::fill(next_grid.begin(), next_grid.end(), nullptr);
 
-
-
         // Cycle collector verification
         region_collect();
 
@@ -143,13 +143,14 @@ namespace gol_rc
         if (heap_size != actual_alive_count + 1)
         {
           std::cout << "FAILURE at Gen " << gen << "\n";
-          std::cout << "Heap: " << heap_size << " | Expected: " << (actual_alive_count + 1) << "\n";
+          std::cout << "Heap: " << heap_size
+                    << " | Expected: " << (actual_alive_count + 1) << "\n";
           check(heap_size == actual_alive_count + 1);
         }
       }
 
-
-      std::cout << "Simulation (RC) survived " << generations << " generations.\n";
+      std::cout << "Simulation (RC) survived " << generations
+                << " generations.\n";
     }
 
     region_release(root);

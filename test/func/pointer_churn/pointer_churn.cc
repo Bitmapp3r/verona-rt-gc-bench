@@ -8,11 +8,11 @@
 int main(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
-  
+
   // Parse command-line arguments
   size_t seed = opt.is<size_t>("--seed", 0);
   UNUSED(seed); // Fixed seed in test for reproducibility
-  
+
   // Get GC type from command line (default: trace)
   std::string gc_type = "trace";
   for (int i = 1; i < argc; i++)

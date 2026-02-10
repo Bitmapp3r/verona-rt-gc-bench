@@ -9,7 +9,7 @@ int main(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
   // Parses `--seed` option with default of 0
-  size_t seed = opt.is<size_t>("--seed", 0); 
+  size_t seed = opt.is<size_t>("--seed", 0);
   UNUSED(seed); // Not used for now
 
 #ifdef CI_BUILD

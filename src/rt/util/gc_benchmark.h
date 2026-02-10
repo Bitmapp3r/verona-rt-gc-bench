@@ -1,14 +1,14 @@
 #pragma once
 
-#include <region/region_api.h>
-#include <cstdint>
-#include <vector>
-#include <unordered_map>
-#include <functional>
-#include <iostream>
-#include <iomanip>
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <functional>
+#include <iomanip>
+#include <iostream>
+#include <region/region_api.h>
+#include <unordered_map>
+#include <vector>
 
 namespace verona::rt::api
 {
@@ -94,9 +94,13 @@ namespace verona::rt::api
      *
      * @param test_fn Function that runs one iteration of the test
      * @param num_runs Number of times to run the test (default 5)
-     * @param warmup_runs Number of warmup iterations before collecting (default 0)
+     * @param warmup_runs Number of warmup iterations before collecting (default
+     * 0)
      */
-    void run_benchmark(std::function<void()> test_fn, size_t num_runs = 5, size_t warmup_runs = 0);
+    void run_benchmark(
+      std::function<void()> test_fn,
+      size_t num_runs = 5,
+      size_t warmup_runs = 0);
 
     /**
      * Print summary statistics
@@ -124,7 +128,8 @@ namespace verona::rt::api
       return total / run_results.size();
     }
 
-    inline uint64_t calculate_percentile(const std::vector<uint64_t>& sorted_values, double percentile) const
+    inline uint64_t calculate_percentile(
+      const std::vector<uint64_t>& sorted_values, double percentile) const
     {
       if (sorted_values.empty())
         return 0;
@@ -132,7 +137,8 @@ namespace verona::rt::api
       return sorted_values[idx];
     }
 
-    inline double calculate_normalized_jitter(const std::vector<uint64_t>& values, uint64_t average) const
+    inline double calculate_normalized_jitter(
+      const std::vector<uint64_t>& values, uint64_t average) const
     {
       if (values.empty() || average == 0)
         return 0;
@@ -149,7 +155,8 @@ namespace verona::rt::api
   };
 
   // Inline implementations
-  inline void GCBenchmark::run_benchmark(std::function<void()> test_fn, size_t num_runs, size_t warmup_runs)
+  inline void GCBenchmark::run_benchmark(
+    std::function<void()> test_fn, size_t num_runs, size_t warmup_runs)
   {
     // Warmup phase
     if (warmup_runs > 0)
@@ -158,20 +165,20 @@ namespace verona::rt::api
       for (size_t warmup = 0; warmup < warmup_runs; warmup++)
       {
         TestMeasurementCollector dummy_collector;
-        
+
         // Create callback that captures the dummy collector
-        std::function<void(uint64_t, RegionType)> callback = 
+        std::function<void(uint64_t, RegionType)> callback =
           [&dummy_collector](uint64_t duration_ns, RegionType type) {
             dummy_collector.record_gc_measurement(duration_ns, type);
           };
-        
+
         {
           // Enable callback for warmup
           auto prev = RegionContext::get_gc_callback();
           RegionContext::set_gc_callback(&callback);
-          
+
           test_fn();
-          
+
           // Restore previous callback
           RegionContext::set_gc_callback(prev);
         }
@@ -183,23 +190,24 @@ namespace verona::rt::api
     // Measurement phase
     for (size_t run = 0; run < num_runs; run++)
     {
-      std::cout << "\n--- Benchmark Run " << (run + 1) << " of " << num_runs << " ---\n";
+      std::cout << "\n--- Benchmark Run " << (run + 1) << " of " << num_runs
+                << " ---\n";
 
       TestMeasurementCollector collector;
-      
+
       // Create callback that captures the collector
-      std::function<void(uint64_t, RegionType)> callback = 
+      std::function<void(uint64_t, RegionType)> callback =
         [&collector](uint64_t duration_ns, RegionType type) {
           collector.record_gc_measurement(duration_ns, type);
         };
-      
+
       {
         // Enable callback for this run
         auto prev = RegionContext::get_gc_callback();
         RegionContext::set_gc_callback(&callback);
-        
+
         test_fn();
-        
+
         // Restore previous callback
         RegionContext::set_gc_callback(prev);
       }
@@ -209,7 +217,7 @@ namespace verona::rt::api
       size_t total_calls = collector.get_gc_count();
 
       uint64_t avg_time = total_calls > 0 ? total_time / total_calls : 0;
-      
+
       // Track max and collect all measurements for global stats
       uint64_t max_time = 0;
       for (const auto& m : collector.get_measurements())
@@ -222,7 +230,8 @@ namespace verona::rt::api
       run_results.push_back({total_time, total_calls, avg_time, max_time});
 
       std::cout << "Run " << (run + 1) << " - Total GC time: " << total_time
-                << " ns (" << total_calls << " calls, max: " << max_time << " ns)\n";
+                << " ns (" << total_calls << " calls, max: " << max_time
+                << " ns)\n";
     }
   }
 
@@ -252,30 +261,32 @@ namespace verona::rt::api
     std::cout << std::string(50, '=') << "\n";
     std::cout << "Number of runs: " << run_results.size() << "\n\n";
     std::cout << "Per-Run Results:\n";
-    std::cout << std::left << std::setw(6) << "Run" << std::setw(18) << "Total (ns)"
-              << std::setw(12) << "Calls" << std::setw(14) << "Avg (ns)"
-              << std::setw(14) << "Max (ns)\n";
+    std::cout << std::left << std::setw(6) << "Run" << std::setw(18)
+              << "Total (ns)" << std::setw(12) << "Calls" << std::setw(14)
+              << "Avg (ns)" << std::setw(14) << "Max (ns)\n";
     std::cout << std::string(74, '-') << "\n";
 
     for (size_t i = 0; i < run_results.size(); i++)
     {
       const auto& result = run_results[i];
       std::cout << std::left << std::setw(6) << (i + 1) << std::setw(18)
-                << result.total_gc_time_ns << std::setw(12) << result.gc_call_count
-                << std::setw(14) << result.average_gc_time_ns << std::setw(14)
+                << result.total_gc_time_ns << std::setw(12)
+                << result.gc_call_count << std::setw(14)
+                << result.average_gc_time_ns << std::setw(14)
                 << result.max_gc_time_ns << "\n";
     }
 
     std::cout << std::string(74, '-') << "\n";
     std::cout << std::left << std::setw(6) << "Avg" << std::setw(18)
-              << get_average_gc_time() << std::setw(12) << (int)get_average_gc_calls()
-              << std::setw(14) << get_average_gc_time() << "\n";
+              << get_average_gc_time() << std::setw(12)
+              << (int)get_average_gc_calls() << std::setw(14)
+              << get_average_gc_time() << "\n";
     std::cout << std::string(74, '-') << "\n";
-    
+
     uint64_t p50 = calculate_percentile(sorted_measurements, 50);
     uint64_t p99 = calculate_percentile(sorted_measurements, 99);
     double jitter = (p50 == 0) ? 0 : (double)(p99 - p50) / p50;
-    
+
     std::cout << std::fixed << std::setprecision(4);
     std::cout << "P50 (across all GC calls): " << p50 << " ns\n";
     std::cout << "P99 (across all GC calls): " << p99 << " ns\n";
@@ -291,7 +302,8 @@ namespace verona::rt::api
       {
         uint64_t total = total_by_type[type_id];
         uint64_t avg = count > 0 ? total / count : 0;
-        const char* name = (type_id >= 0 && type_id < 3) ? type_names[type_id] : "Unknown";
+        const char* name =
+          (type_id >= 0 && type_id < 3) ? type_names[type_id] : "Unknown";
         std::cout << std::left << std::setw(10) << name
                   << " Calls: " << std::setw(8) << count
                   << " Total: " << std::setw(12) << total << " ns"

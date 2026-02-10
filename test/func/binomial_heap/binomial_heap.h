@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-#include "../memory/memory.h" // Mainly for the C1 objects
 #include "../binomial_heap/binomial_tree.h" // For Node objescts
+#include "../memory/memory.h" // Mainly for the C1 objects
 
 namespace binomial_heap
 {
@@ -27,7 +27,7 @@ namespace binomial_heap
   {
     // Root ISO object ID is 2 (The first ID/ID 1 may likely be the Region
     // Metadata object?)
-      auto* root = new (RegionType::Trace) C1;
+    auto* root = new (RegionType::Trace) C1;
 
     {
       UsingRegion rr(root);
@@ -67,23 +67,23 @@ namespace binomial_heap
       root->f1 = nullptr;
 
       // Now L1, L2, R2 become unreachable (garbage)
-      check(debug_size() == 7);  // Still 7 in memory
+      check(debug_size() == 7); // Still 7 in memory
       region_collect();
-      check(debug_size() == 4);  // Only root, R1, L3, R3 remain
+      check(debug_size() == 4); // Only root, R1, L3, R3 remain
 
       // Prune right subtree of R1
-      R1->f1 = nullptr;  // Break link to L3
-      R1->f2 = nullptr;  // Break link to R3
+      R1->f1 = nullptr; // Break link to L3
+      R1->f2 = nullptr; // Break link to R3
 
       check(debug_size() == 4);
       region_collect();
-      check(debug_size() == 2);  // Only root and R1 remain
+      check(debug_size() == 2); // Only root and R1 remain
 
       // Prune the last branch
-      root->f2 = nullptr;  // Break link to R1
+      root->f2 = nullptr; // Break link to R1
 
       region_collect();
-      check(debug_size() == 1);  // Only root remains
+      check(debug_size() == 1); // Only root remains
     }
 
     region_release(root);

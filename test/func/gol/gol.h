@@ -1,9 +1,9 @@
 #pragma once
 
 #include <debug/harness.h>
-#include <verona.h>
-#include <vector>
 #include <iostream>
+#include <vector>
+#include <verona.h>
 
 using namespace snmalloc;
 using namespace verona::rt;
@@ -32,7 +32,8 @@ namespace gol
     }
   };
 
-  inline int count_neighbors(const std::vector<Cell*>& grid, int size, int x, int y)
+  inline int
+  count_neighbors(const std::vector<Cell*>& grid, int size, int x, int y)
   {
     int count = 0;
     for (int dy = -1; dy <= 1; dy++)
@@ -77,7 +78,8 @@ namespace gol
 
       root->live_cells = current_grid;
 
-      std::cout << "Game of Life initialized. Grid: " << size << "x" << size << "\n";
+      std::cout << "Game of Life initialized. Grid: " << size << "x" << size
+                << "\n";
       check(debug_size() == 6);
 
       for (int gen = 0; gen < generations; gen++)
@@ -127,9 +129,10 @@ namespace gol
         std::cout << "Heap size after region collect: " << heap_size << "\n";
 
         if (heap_size != actual_alive_count + 1)
-        {  // +1 for SimRoot
+        { // +1 for SimRoot
           std::cout << "FAILURE at Gen " << gen << "\n";
-          std::cout << "Heap: " << heap_size << " | Expected: " << (actual_alive_count + 1) << "\n";
+          std::cout << "Heap: " << heap_size
+                    << " | Expected: " << (actual_alive_count + 1) << "\n";
           check(heap_size == actual_alive_count + 1);
         }
       }

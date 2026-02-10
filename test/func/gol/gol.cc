@@ -1,7 +1,9 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
 #include "gol.h"
+
 #include "gol_rc.h"
+
 #include <debug/harness.h>
 #include <test/opt.h>
 #include <util/gc_benchmark.h>
@@ -21,7 +23,7 @@ int main(int argc, char** argv)
 
   if (log)
     Logging::enable_logging();
-  
+
   std::cout << "Running with trace region" << std::endl;
   GCBenchmark trace_benchmark;
   size_t runs = 10;

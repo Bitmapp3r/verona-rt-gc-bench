@@ -27,7 +27,9 @@ namespace cycles_rc
       // Check GC worked
       check(debug_size() == 2); // o and o1 are still physically allocated.
       region_collect();
-      check(debug_size() == 1); // o1 should now be identified as a cycle and killed.
+      check(
+        debug_size() ==
+        1); // o1 should now be identified as a cycle and killed.
     }
     region_release(o);
   }
@@ -75,7 +77,8 @@ namespace cycles_rc
       C* curr = head;
 
       // Create a chain of 1,000,000 objects
-      for(int i=0; i < 1000000; ++i) {
+      for (int i = 0; i < 1000000; ++i)
+      {
         C* next = new C;
         curr->f1 = next;
         curr = next;
@@ -134,52 +137,51 @@ namespace cycles_rc
     region_release(o);
   }
 
-/*  void test_domino_cleanup() TODO
-{
-  std::cout << "Testing Domino Effect (A->a1->B->C->A)..." << std::endl;
+  /*  void test_domino_cleanup() TODO
+  {
+    std::cout << "Testing Domino Effect (A->a1->B->C->A)..." << std::endl;
 
-  // Create Regions
-  auto* regionA = new (RegionType::Rc) C;
-  auto* regionB = new (RegionType::Rc) C;
-  auto* regionC = new (RegionType::Rc) C;
+    // Create Regions
+    auto* regionA = new (RegionType::Rc) C;
+    auto* regionB = new (RegionType::Rc) C;
+    auto* regionC = new (RegionType::Rc) C;
 
-  // Setup the Chain
-  // Structure: A (Root) -> a1 (Inner) -> B (ISO) -> C (ISO) -> A (Root)
+    // Setup the Chain
+    // Structure: A (Root) -> a1 (Inner) -> B (ISO) -> C (ISO) -> A (Root)
 
-    // Link B -> C
-    {
-    UsingRegion rc(regionB);
-    regionB->f1 = regionC;
-    check(debug_size() == 1);
-    }
+      // Link B -> C
+      {
+      UsingRegion rc(regionB);
+      regionB->f1 = regionC;
+      check(debug_size() == 1);
+      }
 
-    // Link C -> A
-    {
-    UsingRegion rc(regionC);
-    regionC->f1 = regionA;
-    check(debug_size() == 1);
-    }
+      // Link C -> A
+      {
+      UsingRegion rc(regionC);
+      regionC->f1 = regionA;
+      check(debug_size() == 1);
+      }
 
-    // Link A -> a1 -> B
-    {
-    UsingRegion rc(regionA);
-    auto* a1 = new C;
-    a1->f1 = regionB;
-    decref(a1);
-    check(debug_size() == 1);
-    }
+      // Link A -> a1 -> B
+      {
+      UsingRegion rc(regionA);
+      auto* a1 = new C;
+      a1->f1 = regionB;
+      decref(a1);
+      check(debug_size() == 1);
+      }
 
-  // a1 no longer exists, hence B should be gc'ed, leading to C to be gc'ed,
-  // potentially leading to A being gc'ed?
+    // a1 no longer exists, hence B should be gc'ed, leading to C to be gc'ed,
+    // potentially leading to A being gc'ed?
 
-  // CURRENT CONFUSION: a1 is being gc'ed which leads to B being gc'ed,
-  // this can be seen by adding a region_release(regionC), this makes the heap
-  // empty check pass without needing to release B. but C for some reason is
-  // not touched.
-  region_release(regionA);
-  heap::debug_check_empty();
-} */
-
+    // CURRENT CONFUSION: a1 is being gc'ed which leads to B being gc'ed,
+    // this can be seen by adding a region_release(regionC), this makes the heap
+    // empty check pass without needing to release B. but C for some reason is
+    // not touched.
+    region_release(regionA);
+    heap::debug_check_empty();
+  } */
 
   void run_test()
   {
@@ -187,6 +189,6 @@ namespace cycles_rc
     test_diamond_cycle();
     test_deep_cycle();
     test_multiple_cycles();
-    //test_domino_cleanup(); TODO
+    // test_domino_cleanup(); TODO
   }
 }

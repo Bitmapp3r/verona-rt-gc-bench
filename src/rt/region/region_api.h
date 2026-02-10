@@ -4,9 +4,10 @@
 
 #include "freeze.h"
 #include "region.h"
-#include <test/measuretime.h>
+
 #include <debug/logging.h>
 #include <functional>
+#include <test/measuretime.h>
 
 namespace verona::rt::api
 {
@@ -30,12 +31,13 @@ namespace verona::rt::api
         static thread_local RegionContext context;
         return context;
       }
- 
+
       /**
        * Set a GC measurement callback for this thread's region context.
        * Pass nullptr to disable collection and return to default logging.
        */
-      static void set_gc_callback(std::function<void(uint64_t, RegionType)>* callback)
+      static void
+      set_gc_callback(std::function<void(uint64_t, RegionType)>* callback)
       {
         get_region_context().gc_callback = callback;
       }
@@ -249,10 +251,10 @@ namespace verona::rt::api
     assert(Region::get_type(RegionContext::get_region()) == RegionType::Rc);
     MeasureTime m(true);
     RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
-    
+
     uint64_t duration_ns = m.get_time().count();
     auto* callback = RegionContext::get_gc_callback();
-    
+
     if (callback != nullptr)
     {
       // Route measurement to callback (for testing/metrics gathering)
@@ -261,7 +263,8 @@ namespace verona::rt::api
     else
     {
       // Default logging behavior
-      Logging::cout() << "Decref time: " << duration_ns << " ns" << Logging::endl;
+      Logging::cout() << "Decref time: " << duration_ns << " ns"
+                      << Logging::endl;
     }
   }
 
@@ -305,7 +308,7 @@ namespace verona::rt::api
   {
     MeasureTime m(true);
     RegionType type = Region::get_type(RegionContext::get_region());
-    
+
     switch (type)
     {
       case RegionType::Trace:
@@ -321,10 +324,10 @@ namespace verona::rt::api
           (RegionRc*)RegionContext::get_region());
         break;
     }
-    
+
     uint64_t duration_ns = m.get_time().count();
     auto* callback = RegionContext::get_gc_callback();
-    
+
     if (callback != nullptr)
     {
       // Route measurement to callback (for testing/metrics gathering)
@@ -333,7 +336,8 @@ namespace verona::rt::api
     else
     {
       // Default logging behavior
-      Logging::cout() << "Region GC/Dealloc time: " << duration_ns << " ns" << Logging::endl;
+      Logging::cout() << "Region GC/Dealloc time: " << duration_ns << " ns"
+                      << Logging::endl;
     }
   }
 
@@ -355,7 +359,8 @@ namespace verona::rt::api
     else
     {
       // Default logging behavior
-      Logging::cout() << "Region release time: " << duration_ns << " ns" << Logging::endl;
+      Logging::cout() << "Region release time: " << duration_ns << " ns"
+                      << Logging::endl;
     }
   }
 

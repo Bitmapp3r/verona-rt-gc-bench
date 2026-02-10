@@ -8,16 +8,16 @@ namespace lru_cache
 {
   /**
    * Test garbage collection with LRU (Least Recently Used) Cache structures.
-   * 
+   *
    * This tests a simple cache implemented as a doubly linked list, repeatedly
    * using insertions, removals, and accesses, verifying that removed entries
    * are collected, and the remaining entries are live.
-   * 
+   *
    * Structure: head <-> newest <-> ... <-> oldest <-> tail
-   * 
+   *
    * f1 = next pointer (->), f2 = prev pointer (<-)
    */
-  
+
   // Inserts entry at front of cache - between head and previous newest elem
   void insert(C1* head, C1* entry)
   {
@@ -43,7 +43,6 @@ namespace lru_cache
     return last;
   }
 
-
   // moves entry to front (e.g., when it's accessed)
   void move_to_front(C1* head, C1* entry)
   {
@@ -53,21 +52,20 @@ namespace lru_cache
     insert(head, entry);
   }
 
-
   void test_lru_cache()
   {
-    auto* head = new (RegionType::Trace) C1; 
-    
+    auto* head = new (RegionType::Trace) C1;
+
     {
       UsingRegion rr(head);
-      
+
       // Setup basic LRU cache structure : head <-> tail
       auto* tail = new C1;
       head->f1 = tail;
       tail->f2 = head;
 
       check(debug_size() == 2); // head + tail
-      
+
       // Fill cache to 3 entries
       auto* entry1 = new C1;
       auto* entry2 = new C1;
@@ -107,7 +105,7 @@ namespace lru_cache
       region_collect();
       check(debug_size() == 2); // only head + tail remain
     }
-    
+
     region_release(head);
     heap::debug_check_empty();
   }
