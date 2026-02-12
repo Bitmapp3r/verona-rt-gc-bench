@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <fstream>
 #include <functional>
 #include <iomanip>
 #include <iostream>
@@ -167,6 +168,12 @@ namespace verona::rt::api
      * Print summary statistics
      */
     void print_summary(const char* test_name = "Test") const;
+
+    /**
+     * Write raw data to a CSV file for visualization tools.
+     * Format: run,gc_time_ns,gc_calls,max_gc_ns,avg_mem_bytes,peak_mem_bytes,peak_objects
+     */
+    void write_csv(const char* filename) const;
 
   private:
     inline uint64_t get_average_gc_time() const
@@ -350,6 +357,18 @@ namespace verona::rt::api
       return;
     }
 
+    // Auto-write CSV file (convert test name to filename: spaces->underscores, lowercase)
+    std::string csv_filename = test_name;
+    for (char& c : csv_filename)
+    {
+      if (c == ' ' || c == '-')
+        c = '_';
+      else
+        c = std::tolower(c);
+    }
+    csv_filename += ".csv";
+    write_csv(csv_filename.c_str());
+
     // Sort measurements for percentile calculation
     std::vector<uint64_t> sorted_measurements = all_gc_measurements;
     std::sort(sorted_measurements.begin(), sorted_measurements.end());
@@ -419,8 +438,8 @@ namespace verona::rt::api
     std::cout << "\nMemory:\n";
     std::cout << "  Average Live Memory: " << format_bytes(overall_avg_mem)
               << " (avg memory at GC events - explains GC frequency)\n";
-    std::cout << "  Peak Memory Usage:   " << format_bytes(overall_peak_mem)
-              << " (ensures GC not unbounded)\n";
+    std::cout << "  Average Peak Memory: " << format_bytes(overall_peak_mem)
+              << " (avg of per-run peaks - ensures GC not unbounded)\n";
 
     // Show per-region-type breakdown if multiple types were used
     if (count_by_type.size() > 1)
@@ -439,6 +458,62 @@ namespace verona::rt::api
       }
     }
     std::cout << std::string(90, '=') << "\n";
+  }
+
+  inline void GCBenchmark::write_csv(const char* filename) const
+  {
+    std::ofstream file(filename);
+    if (!file.is_open())
+    {
+      std::cerr << "Error: Could not open file " << filename << " for writing\n";
+      return;
+    }
+
+    if (run_results.empty())
+    {
+      file << "# No benchmark results\n";
+      return;
+    }
+
+    // Calculate P50, P99, jitter
+    std::vector<uint64_t> sorted_measurements = all_gc_measurements;
+    std::sort(sorted_measurements.begin(), sorted_measurements.end());
+    uint64_t p50 = calculate_percentile(sorted_measurements, 50.0);
+    uint64_t p99 = calculate_percentile(sorted_measurements, 99.0);
+    double jitter = p50 > 0 ? static_cast<double>(p99 - p50) / p50 : 0.0;
+
+    // Calculate overall averages
+    uint64_t overall_avg_mem = 0, overall_peak_mem = 0;
+    for (const auto& r : run_results)
+    {
+      overall_avg_mem += r.avg_memory_bytes;
+      overall_peak_mem += r.peak_memory_bytes;
+    }
+    overall_avg_mem /= run_results.size();
+    overall_peak_mem /= run_results.size();
+
+    // CSV header
+    file << "run,gc_time_ns,gc_calls,max_gc_ns,avg_mem_bytes,peak_mem_bytes,peak_objects\n";
+
+    // Per-run data
+    for (size_t i = 0; i < run_results.size(); ++i)
+    {
+      const auto& r = run_results[i];
+      file << (i + 1) << ","
+           << r.total_gc_time_ns << ","
+           << r.gc_call_count << ","
+           << r.max_gc_time_ns << ","
+           << r.avg_memory_bytes << ","
+           << r.peak_memory_bytes << ","
+           << r.peak_object_count << "\n";
+    }
+
+    // Summary row
+    file << "#p50_ns=" << p50 
+         << ",p99_ns=" << p99 
+         << ",jitter=" << std::fixed << std::setprecision(4) << jitter
+         << ",avg_mem=" << overall_avg_mem
+         << ",peak_mem=" << overall_peak_mem << "\n";
   }
 
 } // namespace verona::rt::api

@@ -24,6 +24,14 @@
 namespace reproduction
 {
 
+// Thread-local random generator for reproducible results
+inline thread_local std::mt19937 g_gen;
+
+inline void set_seed(size_t seed)
+{
+  g_gen.seed(static_cast<std::mt19937::result_type>(seed));
+}
+
 class Node : public V<Node>
 {
 public:
@@ -70,9 +78,6 @@ public:
   static int orgNumber;
   static Organism* reproduce(Organism* a, Organism* b, int id)
   {
-    std::random_device rd;
-    std::mt19937 gen(rd()); // mersenne twister engine
-
     std::uniform_int_distribution<size_t> coin(0, 1);
 
     Organism* child = new Organism(id);
@@ -80,12 +85,12 @@ public:
     Node* child_node = new Node;
     for (Node* n : a->this_root->to)
     {
-      if (coin(gen) == 0)
+      if (coin(g_gen) == 0)
         child_node->to.push_back(new Node(*n));
     }
     for (Node* n : b->this_root->to)
     {
-      if (coin(gen) == 0)
+      if (coin(g_gen) == 0)
         child_node->to.push_back(new Node(*n));
     }
     child->this_root = child_node;
@@ -121,33 +126,36 @@ Organism* create_organism(int id)
 }
 
 template<RegionType rt>
-void run_test(int numGenerations, int killPercentage, int popSize)
+void run_test(int numGenerations, int killPercentage, int popSize, size_t seed = 0)
 {
+  // Set seed for reproducibility (0 means use random seed)
+  if (seed == 0)
+  {
+    std::random_device rd;
+    seed = rd();
+  }
+  set_seed(seed);
+
   // create initial population
   auto* grand_father = new (rt) Organism(0);
   {
     UsingRegion rr(grand_father);
     Organism* org = create_organism(1);
     grand_father->next = org;
-    INCREF(org);
-    DECREF(org);
+    // INCREF/DECREF removed
     Organism* cur = org;
     for (int i = 0; i < popSize; i++)
     {
       Organism* next = create_organism(i + 2);
       cur->next = next;
-      INCREF(next);
-
+      INCREF(next); // cur->next now references next
       cur = next;
     }
     cur->next = grand_father->next;
-    INCREF(grand_father->next);
+    INCREF(grand_father->next); // cur->next now references grand_father->next
     std::cout << "created the ring\n";
     std::cout << "region size:" << debug_size() << std::endl;
   }
-
-  std::random_device rd;
-  std::mt19937 gen(rd()); // mersenne twister engine
 
   std::uniform_int_distribution<size_t> kill_roulette(1, 100);
 
@@ -165,7 +173,7 @@ void run_test(int numGenerations, int killPercentage, int popSize)
       Organism* cur = prev->next;
       for (int j = 0; j < popSize; j++)
       {
-        if (kill_roulette(gen) < killPercentage)
+        if (kill_roulette(g_gen) < killPercentage)
         {
           // kill the cur.
           /*
@@ -178,8 +186,8 @@ void run_test(int numGenerations, int killPercentage, int popSize)
           Organism* kill_me = cur;
           cur = cur->next;
           prev->next = cur;
-          INCREF(cur);       // prev->next now references cur
-          DECREF(kill_me);   // kill_me lost reference from prev->next
+          INCREF(cur);     // prev->next now references cur
+          DECREF(kill_me); // kill_me lost reference from prev->next
         }
         else
         {
