@@ -454,7 +454,6 @@ namespace verona::rt
     template<SweepAll sweep_all = SweepAll::No>
     void sweep(Object* o, ObjectStack& collect)
     {
-      current_memory_used = 0;
 
       RingKind primary_ring = o->is_trivial() ? TrivialRing : NonTrivialRing;
 

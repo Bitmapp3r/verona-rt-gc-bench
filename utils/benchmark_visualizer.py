@@ -236,10 +236,24 @@ if __name__ == '__main__':
     
     # Parse all CSVs and combine into one plot
     all_results = {}
+    label_counts = {}
     for csv_file in sorted(csv_files):
         results = parse_csv(csv_file)
-        # Use a cleaner name (extract region type from filename)
-        name = results['name'].replace('reproduction___', '').replace('_region', '').title()
+        stem = Path(csv_file).stem.lower()
+
+        # Detect region type from filename
+        if 'trace' in stem:
+            base = 'trace'
+        elif 'arena' in stem:
+            base = 'arena'
+        elif 'rc' in stem:
+            base = 'rc'
+        else:
+            base = Path(csv_file).stem
+
+        # Ensure unique keys if multiple files map to same region type
+        label_counts[base] = label_counts.get(base, 0) + 1
+        name = base if label_counts[base] == 1 else f"{base}_{label_counts[base]}"
         all_results[name] = results
     
     output_file = TEST_DIR / 'benchmark_comparison.png'
