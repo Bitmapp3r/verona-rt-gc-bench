@@ -237,6 +237,9 @@ namespace verona::rt
      **/
     Object* last_large;
 
+    // Memory usage tracking (O(1) access)
+    size_t current_memory_used = 0;
+
     RegionArena()
     : RegionBase(),
       first_arena(nullptr),
@@ -260,6 +263,14 @@ namespace verona::rt
       assert(o->debug_is_iso());
       assert(is_arena_region(o->get_region()));
       return (RegionArena*)o->get_region();
+    }
+
+    /**
+     * Get memory used by this arena region (O(1)).
+     */
+    size_t get_current_memory_used() const
+    {
+      return current_memory_used;
     }
 
     inline static bool is_arena_region(Object* o)
@@ -424,6 +435,10 @@ namespace verona::rt
       assert((size == 0) || (desc->size == size));
 
       auto sz = size == 0 ? desc->size : size;
+      
+      // Track memory usage
+      current_memory_used += sz;
+      
       if (sz > Arena::SIZE)
       {
         // Allocate object.
@@ -488,6 +503,9 @@ namespace verona::rt
       Object* head = other->get_next();
       if (head != other)
         append(head, other->last_large);
+
+      // Merge memory tracking
+      current_memory_used += other->current_memory_used;
 
       assert(last_arena != nullptr ? last_arena->next == nullptr : true);
       assert(

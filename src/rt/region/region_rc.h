@@ -70,6 +70,11 @@ namespace verona::rt
       return region_size;
     }
 
+    size_t get_current_memory_used() const
+    {
+      return current_memory_used;
+    }
+
     inline static bool is_rc_region(Object* o)
     {
       return o->is_type(desc());
@@ -565,6 +570,7 @@ namespace verona::rt
       {
         Object* o = gc.pop();
         reg->region_size -= 1;
+        reg->current_memory_used -= o->size();
         o->destructor();
         o->dealloc();
       }
@@ -633,6 +639,7 @@ namespace verona::rt
       {
         Object* o = gc.pop();
         reg->region_size -= 1;
+        reg->current_memory_used -= o->size();
         o->destructor();
         o->dealloc();
       }

@@ -21,7 +21,8 @@
     incref(o); \
   decref(o);
 
-const RegionType rt = RegionType::Arena;
+namespace reproduction
+{
 
 class Node : public V<Node>
 {
@@ -119,7 +120,8 @@ Organism* create_organism(int id)
   return org;
 }
 
-void test_reproduction(int numGenerations, int killPercentage, int popSize)
+template<RegionType rt>
+void run_test(int numGenerations, int killPercentage, int popSize)
 {
   // create initial population
   auto* grand_father = new (rt) Organism(0);
@@ -169,15 +171,15 @@ void test_reproduction(int numGenerations, int killPercentage, int popSize)
           /*
           before: prev --> cur --> cur.next
           after: prev --> cur.next
-          so cur has one less reference and cur.next has one less reference.
+          - cur loses one reference (prev->next no longer points to it)
+          - cur.next gains one reference (prev->next now points to it)
           */
           kill_count++;
           Organism* kill_me = cur;
-          prev->next = cur->next;
-          INCREF(kill_me->next);
-          DECREF(kill_me);
-
           cur = cur->next;
+          prev->next = cur;
+          INCREF(cur);       // prev->next now references cur
+          DECREF(kill_me);   // kill_me lost reference from prev->next
         }
         else
         {
@@ -218,10 +220,12 @@ void test_reproduction(int numGenerations, int killPercentage, int popSize)
         // reproduce p1 and p2
         Organism* child = Organism::reproduce(p1, p2, 90);
         // insert child after p2.
-        Organism* old = p2->next;
+        // before: p2 --> p2.next
+        // after:  p2 --> child --> p2.next
         child->next = p2->next;
-
+        INCREF(p2->next);  // child->next now references p2->next
         p2->next = child;
+        INCREF(child);     // p2->next now references child
       }
       // std::cout << "new children: " << killPercentage * popSize / 100 <<
       // std::endl;
@@ -230,3 +234,5 @@ void test_reproduction(int numGenerations, int killPercentage, int popSize)
     }
   }
 }
+
+} // namespace reproduction

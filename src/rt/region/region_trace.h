@@ -97,6 +97,11 @@ namespace verona::rt
       return o->is_type(desc());
     }
 
+    size_t get_current_memory_used() const
+    {
+      return current_memory_used;
+    }
+
     /**
      * Creates a new trace region by allocating Object `o` of type `desc`. The
      * object is initialised as the Iso object for that region, and points to a
@@ -489,6 +494,7 @@ namespace verona::rt
         if (p->has_ext_ref())
           ExternalReferenceTable::erase(p);
 
+        current_memory_used -= p->size();
         p->dealloc();
       }
       else
@@ -576,6 +582,7 @@ namespace verona::rt
         while (!gc.empty())
         {
           Object* q = gc.pop();
+          current_memory_used -= q->size();
           q->destructor();
           q->dealloc();
         }
