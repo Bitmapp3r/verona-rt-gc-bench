@@ -2,8 +2,11 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "cpp/cown.h"
+#include "cpp/when.h"
 #include "func/ext_ref/ext_ref_basic.h"
 #include "region/region_api.h"
+#include "region/region_base.h"
 
 #include <algorithm>
 #include <cstddef>
@@ -67,23 +70,29 @@ namespace arbitrary_nodes
         st.push(bridge);
     }
   };
+  
+  class GraphRegionWrapper {
+      public:
+      GraphRegionWrapper(GraphRegion* graphRegion) : graphRegion(graphRegion) {}
+      GraphRegion* graphRegion;
+  };
 
   struct RegionRoot : public V<RegionRoot>
   // This is the root of all the other regions
   // All the other regions are GraphRegion
   {
-    std::vector<GraphRegion*> graphRegions;
+    std::vector<verona::cpp::cown_ptr<GraphRegionWrapper>> graphRegions;
     void trace(ObjectStack& st) const
     {
-      for (GraphRegion* graphRegion : graphRegions)
-      {
-        if (graphRegion != nullptr)
-          st.push(graphRegion);
-      }
+      // for (GraphRegion* graphRegion : graphRegions)
+      // {
+      //   if (graphRegion != nullptr)
+      //     st.push(graphRegion);
+      // }
     }
   };
 
-  inline RegionRoot* root;
+//   inline RegionRoot* root;
 
   std::vector<size_t> random_regions(size_t regions, size_t size)
   {
@@ -148,9 +157,9 @@ namespace arbitrary_nodes
     }
   }
 
-  void createGraph(int size, int regions)
+  RegionRoot* createGraph(int size, int regions)
   {
-    root = new (RegionType::Trace) RegionRoot;
+    RegionRoot* root = new (RegionType::Trace) RegionRoot;
     std::vector<size_t> region_sizes = random_regions(regions, size);
     std::cout << "Region sizes: ";
     for (size_t size : region_sizes)
@@ -164,9 +173,10 @@ namespace arbitrary_nodes
       if (region_size == 0)
         continue;
       GraphRegion* graphRegion = new (RegionType::Trace) GraphRegion();
+      auto ptr = verona::cpp::make_cown<GraphRegionWrapper>(graphRegion);
       {
         UsingRegion ur(graphRegion);
-        Node* bridge = new Node();
+        Node* bridge = new (RegionType::Trace) Node();
         graphRegion->bridge = bridge;
 
         // local vector of nodes in this region
@@ -182,8 +192,10 @@ namespace arbitrary_nodes
         fully_connect(all_nodes);
       }
 
-      root->graphRegions.push_back(graphRegion);
+      root->graphRegions.push_back(ptr);
     }
+    std::cout << "Finished creating graph regions" << std::endl;
+    return root;
   }
 
   bool removeArc(Node* src, Node* dst)
@@ -232,19 +244,24 @@ namespace arbitrary_nodes
 
   void run_test(int size, int regions)
   {
-    createGraph(size, regions);
+    RegionRoot* root = createGraph(size, regions);
     std::cout << "got here";
 
-    for (GraphRegion* graphRegion : root->graphRegions)
-    {
-      traverse_region(graphRegion);
-    }
-  }
+    int regions_left = root->graphRegions.size();
 
-  inline void run_test()
-  {
-    // Placeholder test function
-    std::cout << "Running arbitrary_nodes test...\n";
+    for (verona::cpp::cown_ptr<GraphRegionWrapper> graphRegionWrapper : root->graphRegions)
+    {
+        verona::cpp::when(graphRegionWrapper) << [&](auto w) {
+            traverse_region(w->graphRegion);
+            region_release(w->graphRegion);
+            regions_left--;
+        };
+
+        if (regions_left == 0) {
+            region_release(root);
+        }
+
+    }
   }
 
 } // namespace arbitrary_nodes
