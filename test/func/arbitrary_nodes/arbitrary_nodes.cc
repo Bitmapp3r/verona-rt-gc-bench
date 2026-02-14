@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: MIT
 #include "arbitrary_nodes.h"
 
-#include <debug/harness.h>
 #include "debug/logging.h"
 
+#include <debug/harness.h>
 #include <test/opt.h>
-// #include <util/gc_benchmark.h>
 
 using namespace verona::rt::api;
 
@@ -39,27 +38,11 @@ int main(int argc, char** argv)
   if (enable_log)
   {
     Logging::enable_logging();
-
-    // size_t runs = 5;
-    // size_t warmup_runs = 10;
-
-    // std::cout << "Running arbitrary nodes benchmark" << std::endl;
-    // arbitrary_nodes::run_test(size, regions);
-    // GCBenchmark benchmark;
-    // benchmark.run_benchmark(
-    //   [size, regions]() { arbitrary_nodes::run_test(size, regions); },
-    //   runs,
-    //   warmup_runs);
-    // benchmark.print_summary("Arbitrary Nodes");
-
-    // return 0;
   }
 
   SystematicTestHarness harness(argc, argv);
 
-  harness.run([=]() {
-    arbitrary_nodes::run_test(size, regions);
-  });
+  harness.run([=]() { arbitrary_nodes::run_test(size, regions); });
 
   return 0;
 }

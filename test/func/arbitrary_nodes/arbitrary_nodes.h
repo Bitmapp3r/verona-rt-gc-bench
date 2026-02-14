@@ -4,16 +4,13 @@
 
 #include "cpp/cown.h"
 #include "cpp/when.h"
-#include "cpp/cown_array.h"
 #include "func/ext_ref/ext_ref_basic.h"
 #include "region/region_api.h"
 #include "region/region_base.h"
 
-#include <algorithm>
 #include <cstddef>
 #include <debug/harness.h>
 #include <iostream>
-#include <queue>
 #include <random>
 #include <unordered_set>
 #include <vector>
@@ -45,7 +42,6 @@ namespace arbitrary_nodes
   {
   public:
     std::unordered_set<Node*> neighbours;
-    int id;
 
     Node()
     {
@@ -73,29 +69,18 @@ namespace arbitrary_nodes
         st.push(bridge);
     }
   };
-  
-  class GraphRegionWrapper {
-      public:
-      GraphRegionWrapper(GraphRegion* graphRegion) : graphRegion(graphRegion) {}
-      GraphRegion* graphRegion;
-  };
 
-  struct RegionRoot : public V<RegionRoot>
-  // This is the root of all the other regions
-  // All the other regions are GraphRegion
+  class GraphRegionCown
   {
-    std::vector<cown_ptr<GraphRegionWrapper>> graphRegions;
-    void trace(ObjectStack& st) const
+  public:
+    GraphRegionCown(GraphRegion* graphRegion) : graphRegion(graphRegion) {}
+    GraphRegion* graphRegion;
+
+    ~GraphRegionCown()
     {
-      // for (GraphRegion* graphRegion : graphRegions)
-      // {
-      //   if (graphRegion != nullptr)
-      //     st.push(graphRegion);
-      // }
+      region_release(graphRegion);
     }
   };
-
-//   inline RegionRoot* root;
 
   std::vector<size_t> random_regions(size_t regions, size_t size)
   {
@@ -105,43 +90,29 @@ namespace arbitrary_nodes
     std::random_device rd;
     std::mt19937 gen(rd());
 
-    // We choose cuts in [1, size-1], not including 0 or size
-    std::uniform_int_distribution<size_t> dist(1, size - 1);
+    // Each region will have at least one node
+    // We will randomly distribute the remaining nodes among the regions
+    std::vector<size_t> result(regions, 1);
 
-    std::vector<size_t> cuts(regions + 1);
-    cuts[0] = 0;
-    cuts[regions] = size;
+    std::uniform_int_distribution<size_t> dist(0, regions - 1);
 
-    for (size_t i = 1; i < regions; ++i)
+    for (size_t i = 0; i < (size - regions); ++i)
     {
-      cuts[i] = dist(gen);
-    }
-
-    std::sort(cuts.begin(), cuts.end());
-
-    std::vector<size_t> result(regions);
-    for (size_t i = 0; i < regions; ++i)
-    {
-      result[i] = cuts[i + 1] - cuts[i]; // always >= 1
+      size_t idx = dist(gen);
+      result[idx]++;
     }
 
     return result;
   }
 
-  void kill_node(Node* src, Node* dst)
-  {
-    if (src->neighbours.find(dst) != src->neighbours.end())
-      return;
-    src->neighbours.erase(dst);
-  }
-
   inline void fully_connect(const std::vector<Node*>& nodes)
-  // THIS WILL NOT WORK IF YOU HAVE AN EVEN NUMBER OF NODES
-  // THIS WILL LEAD TO A EUCLIDEAN GRAPH
-  // YOU WILL NOT GET STUCK ANYWHERE AND WILL ALWAYS BE ABLE
-  // TO RETURN BACK TO THE ROOT NODE
-  // MODIFY LATER TO ONLY CONNECT A SMALL PROPORTION OF NODES
-  // TODO
+  // If you have an even number of nodes, you will have a
+  // Euclidean graph. Euclidean graphs will return to the
+  // root after traversal, so every other node will be garbage
+  // after traversing and deleting the arcs (think of chinese postman problem).
+  // TODO: Modify so that it partially connects the nodes,
+  // so that you get clusters of nodes that will be disconnected
+  // after traversal.
   {
     for (Node* u : nodes)
     {
@@ -160,9 +131,8 @@ namespace arbitrary_nodes
     }
   }
 
-  RegionRoot* createGraph(int size, int regions)
+  std::vector<cown_ptr<GraphRegionCown>> createGraph(int size, int regions)
   {
-    RegionRoot* root = new (RegionType::Trace) RegionRoot;
     std::vector<size_t> region_sizes = random_regions(regions, size);
     std::cout << "Region sizes: ";
     for (size_t size : region_sizes)
@@ -170,16 +140,15 @@ namespace arbitrary_nodes
       std::cout << size << " ";
     }
     std::cout << std::endl;
-    std::vector<GraphRegion*> otraces = std::vector<GraphRegion*>(regions);
+
+    std::vector<cown_ptr<GraphRegionCown>> graphRegions;
     for (size_t region_size : region_sizes)
     {
-      if (region_size == 0)
-        continue;
       GraphRegion* graphRegion = new (RegionType::Trace) GraphRegion();
-      auto ptr = make_cown<GraphRegionWrapper>(graphRegion);
+      auto ptr = make_cown<GraphRegionCown>(graphRegion);
       {
         UsingRegion ur(graphRegion);
-        Node* bridge = new (RegionType::Trace) Node();
+        Node* bridge = new Node();
         graphRegion->bridge = bridge;
 
         // local vector of nodes in this region
@@ -195,10 +164,10 @@ namespace arbitrary_nodes
         fully_connect(all_nodes);
       }
 
-      root->graphRegions.push_back(ptr);
+      graphRegions.push_back(ptr);
     }
     std::cout << "Finished creating graph regions" << std::endl;
-    return root;
+    return graphRegions;
   }
 
   bool removeArc(Node* src, Node* dst)
@@ -237,56 +206,19 @@ namespace arbitrary_nodes
       Node* dst = random_element(cur->neighbours);
       cur = traverse(cur, dst);
     }
-
-    int debug_size = verona::rt::api::debug_size();
-    region_collect();
-    int new_debug_size = verona::rt::api::debug_size();
-    std::cout << "Debug size before: " << debug_size << std::endl;
-    std::cout << "Debug size after: " << new_debug_size << std::endl;
   }
-
-  class RegionsLeft {
-    public:
-    int left;
-
-    RegionsLeft(int n) { left = n; }
-  };
 
   void run_test(int size, int regions)
   {
-    RegionRoot* root = createGraph(size, regions);
-    std::cout << "got here";
-
-
-
-    // int regions_left = root->graphRegions.size();
-    // int& ref = regions_left;
-    cown_ptr<RegionsLeft> rs = make_cown<RegionsLeft>(root->graphRegions.size());
-
-
-    for (cown_ptr<GraphRegionWrapper> graphRegionWrapper : root->graphRegions)
     {
-        when(graphRegionWrapper, rs) << [&](auto w, RegionsLeft r) {
-            traverse_region(w->graphRegion);
-            region_release(w->graphRegion);
-            r.left--;
-        };
-    }
+      std::vector<cown_ptr<GraphRegionCown>> graphRegions =
+        createGraph(size, regions);
 
-    cown_ptr<GraphRegionWrapper> carray[root->graphRegions.size()];
-    for (size_t i = 0; i != root->graphRegions.size(); i++) {
-      carray[i] = root->graphRegions[i];
-    }
-    cown_array<GraphRegionWrapper> t1{carray, root->graphRegions.size()};
-
-    when(t1, rs) << [&](auto w, RegionsLeft r) {
-      if (r.left == 0) {
-          region_release(root);
-          std::cout << "!!!!!!!!!!!!!!!!!!1 RELEASE REGION";
-      } else {
-        std::cout << "There are " << r.left << " regions left";
+      for (cown_ptr<GraphRegionCown> graphRegionCown : graphRegions)
+      {
+        when(graphRegionCown)
+          << [&](auto c) { traverse_region(c->graphRegion); };
       }
-    };
+    }
   }
-
 } // namespace arbitrary_nodes
