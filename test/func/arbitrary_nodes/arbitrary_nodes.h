@@ -130,8 +130,8 @@ namespace arbitrary_nodes
       }
     }
   }
-  
-  template <RegionType rt>
+
+  template<RegionType rt>
   std::vector<cown_ptr<GraphRegionCown>> createGraph(int size, int regions)
   {
     std::vector<size_t> region_sizes = random_regions(regions, size);
@@ -209,7 +209,7 @@ namespace arbitrary_nodes
     }
   }
 
-  template <RegionType rt>
+  template<RegionType rt>
   void run_test(int size, int regions)
   {
     {

@@ -435,10 +435,10 @@ namespace verona::rt
       assert((size == 0) || (desc->size == size));
 
       auto sz = size == 0 ? desc->size : size;
-      
+
       // Track memory usage
       current_memory_used += sz;
-      
+
       if (sz > Arena::SIZE)
       {
         // Allocate object.

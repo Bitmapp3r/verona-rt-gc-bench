@@ -454,7 +454,6 @@ namespace verona::rt
     template<SweepAll sweep_all = SweepAll::No>
     void sweep(Object* o, ObjectStack& collect)
     {
-
       RingKind primary_ring = o->is_trivial() ? TrivialRing : NonTrivialRing;
 
       // We sweep the non-trivial ring first, as finalisers in there could refer

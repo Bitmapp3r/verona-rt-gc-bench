@@ -21,7 +21,8 @@ int main(int argc, char** argv)
 
   size_t runs = 3;
   size_t warmup_runs = 10;
-  size_t seed = opt.is<size_t>("--seed", 42); // Default 0 = random seed each run
+  size_t seed =
+    opt.is<size_t>("--seed", 42); // Default 0 = random seed each run
 
   std::cout << "Running with trace region" << std::endl;
   GCBenchmark trace_benchmark;

@@ -41,7 +41,6 @@ int main(int argc, char** argv)
     Logging::enable_logging();
   }
 
-
   size_t runs = 10;
   size_t warmup_runs = 10;
 
@@ -49,18 +48,24 @@ int main(int argc, char** argv)
 
   std::cout << "\nRunning with arena region" << std::endl;
   GCBenchmark trace_benchmark;
-  
+
   trace_benchmark.run_benchmark(
-      [&, size, regions]() { harness.run([=]() { 
-          arbitrary_nodes::run_test<RegionType::Trace>(size, regions); 
-      }); }, runs, warmup_runs);
-    trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
-  
-    trace_benchmark.run_benchmark(
-        [&, size, regions]() { harness.run([=]() { 
-            arbitrary_nodes::run_test<RegionType::Arena>(size, regions); 
-        }); }, runs, warmup_runs);
-      trace_benchmark.print_summary("Arbitrary Nodes - Using Arena");
-    
+    [&, size, regions]() {
+      harness.run(
+        [=]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
+    },
+    runs,
+    warmup_runs);
+  trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
+
+  trace_benchmark.run_benchmark(
+    [&, size, regions]() {
+      harness.run(
+        [=]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
+    },
+    runs,
+    warmup_runs);
+  trace_benchmark.print_summary("Arbitrary Nodes - Using Arena");
+
   return 0;
 }

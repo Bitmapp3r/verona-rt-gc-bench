@@ -171,7 +171,8 @@ namespace verona::rt::api
 
     /**
      * Write raw data to a CSV file for visualization tools.
-     * Format: run,gc_time_ns,gc_calls,max_gc_ns,avg_mem_bytes,peak_mem_bytes,peak_objects
+     * Format:
+     * run,gc_time_ns,gc_calls,max_gc_ns,avg_mem_bytes,peak_mem_bytes,peak_objects
      */
     void write_csv(const char* filename) const;
 
@@ -227,7 +228,8 @@ namespace verona::rt::api
         unit_idx++;
       }
       std::ostringstream oss;
-      oss << std::fixed << std::setprecision(2) << value << " " << units[unit_idx];
+      oss << std::fixed << std::setprecision(2) << value << " "
+          << units[unit_idx];
       return oss.str();
     }
 
@@ -332,14 +334,15 @@ namespace verona::rt::api
         max_time = std::max(max_time, m.first);
       }
 
-      run_results.push_back({total_time,
-                             total_calls,
-                             avg_time,
-                             max_time,
-                             collector.get_peak_memory(),
-                             collector.get_peak_objects(),
-                             collector.get_average_memory(),
-                             collector.get_average_objects()});
+      run_results.push_back(
+        {total_time,
+         total_calls,
+         avg_time,
+         max_time,
+         collector.get_peak_memory(),
+         collector.get_peak_objects(),
+         collector.get_average_memory(),
+         collector.get_average_objects()});
 
       std::cout << "Run " << (run + 1) << " - GC: " << total_time << " ns ("
                 << total_calls << " calls) | Avg Mem: "
@@ -357,7 +360,8 @@ namespace verona::rt::api
       return;
     }
 
-    // Auto-write CSV file (convert test name to filename: spaces->underscores, lowercase)
+    // Auto-write CSV file (convert test name to filename: spaces->underscores,
+    // lowercase)
     std::string csv_filename = test_name;
     for (char& c : csv_filename)
     {
@@ -421,9 +425,9 @@ namespace verona::rt::api
     std::cout << std::left << std::setw(5) << "Avg" << std::setw(15)
               << get_average_gc_time() << std::setw(8)
               << (int)get_average_gc_calls() << std::setw(12) << "-"
-              << std::setw(14) << format_bytes(overall_avg_mem)
-              << std::setw(14) << format_bytes(overall_peak_mem)
-              << std::setw(10) << overall_peak_obj << "\n";
+              << std::setw(14) << format_bytes(overall_avg_mem) << std::setw(14)
+              << format_bytes(overall_peak_mem) << std::setw(10)
+              << overall_peak_obj << "\n";
     std::cout << std::string(78, '-') << "\n";
 
     uint64_t p50 = calculate_percentile(sorted_measurements, 50);
@@ -452,9 +456,8 @@ namespace verona::rt::api
         uint64_t avg = count > 0 ? total / count : 0;
         const char* name =
           (type_id >= 0 && type_id < 3) ? type_names[type_id] : "Unknown";
-        std::cout << "  " << std::left << std::setw(6) << name << " - "
-                  << count << " calls, " << total << " ns total, " << avg
-                  << " ns avg\n";
+        std::cout << "  " << std::left << std::setw(6) << name << " - " << count
+                  << " calls, " << total << " ns total, " << avg << " ns avg\n";
       }
     }
     std::cout << std::string(90, '=') << "\n";
@@ -465,7 +468,8 @@ namespace verona::rt::api
     std::ofstream file(filename);
     if (!file.is_open())
     {
-      std::cerr << "Error: Could not open file " << filename << " for writing\n";
+      std::cerr << "Error: Could not open file " << filename
+                << " for writing\n";
       return;
     }
 
@@ -493,26 +497,21 @@ namespace verona::rt::api
     overall_peak_mem /= run_results.size();
 
     // CSV header
-    file << "run,gc_time_ns,gc_calls,max_gc_ns,avg_mem_bytes,peak_mem_bytes,peak_objects\n";
+    file << "run,gc_time_ns,gc_calls,max_gc_ns,avg_mem_bytes,peak_mem_bytes,"
+            "peak_objects\n";
 
     // Per-run data
     for (size_t i = 0; i < run_results.size(); ++i)
     {
       const auto& r = run_results[i];
-      file << (i + 1) << ","
-           << r.total_gc_time_ns << ","
-           << r.gc_call_count << ","
-           << r.max_gc_time_ns << ","
-           << r.avg_memory_bytes << ","
-           << r.peak_memory_bytes << ","
-           << r.peak_object_count << "\n";
+      file << (i + 1) << "," << r.total_gc_time_ns << "," << r.gc_call_count
+           << "," << r.max_gc_time_ns << "," << r.avg_memory_bytes << ","
+           << r.peak_memory_bytes << "," << r.peak_object_count << "\n";
     }
 
     // Summary row
-    file << "#p50_ns=" << p50 
-         << ",p99_ns=" << p99 
-         << ",jitter=" << std::fixed << std::setprecision(4) << jitter
-         << ",avg_mem=" << overall_avg_mem
+    file << "#p50_ns=" << p50 << ",p99_ns=" << p99 << ",jitter=" << std::fixed
+         << std::setprecision(4) << jitter << ",avg_mem=" << overall_avg_mem
          << ",peak_mem=" << overall_peak_mem << "\n";
   }
 

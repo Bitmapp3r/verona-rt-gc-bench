@@ -37,8 +37,8 @@ namespace verona::rt::api
        * Callback receives: duration_ns, region_type, memory_bytes, object_count
        * Pass nullptr to disable collection and return to default logging.
        */
-      static void
-      set_gc_callback(std::function<void(uint64_t, RegionType, size_t, size_t)>* callback)
+      static void set_gc_callback(
+        std::function<void(uint64_t, RegionType, size_t, size_t)>* callback)
       {
         get_region_context().gc_callback = callback;
       }
@@ -46,7 +46,8 @@ namespace verona::rt::api
       /**
        * Get the current GC measurement callback, or nullptr if none is set.
        */
-      static std::function<void(uint64_t, RegionType, size_t, size_t)>* get_gc_callback()
+      static std::function<void(uint64_t, RegionType, size_t, size_t)>*
+      get_gc_callback()
       {
         return get_region_context().gc_callback;
       }
@@ -250,11 +251,13 @@ namespace verona::rt::api
   inline void decref(Object* o)
   {
     assert(Region::get_type(RegionContext::get_region()) == RegionType::Rc);
-    
+
     // Capture memory before operation for metrics
-    size_t mem_before = ((RegionRc*)RegionContext::get_region())->get_current_memory_used();
-    size_t obj_before = ((RegionRc*)RegionContext::get_region())->get_region_size();
-    
+    size_t mem_before =
+      ((RegionRc*)RegionContext::get_region())->get_current_memory_used();
+    size_t obj_before =
+      ((RegionRc*)RegionContext::get_region())->get_region_size();
+
     MeasureTime m(true);
     RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
 
@@ -313,26 +316,38 @@ namespace verona::rt::api
   inline void region_collect()
   {
     RegionType type = Region::get_type(RegionContext::get_region());
-    
+
     // Capture memory before GC for metrics
     size_t mem_before = 0;
     size_t obj_before = 0;
     switch (type)
     {
       case RegionType::Trace:
-        mem_before = ((RegionTrace*)RegionContext::get_region())->get_current_memory_used();
-        for (auto p : *((RegionTrace*)RegionContext::get_region())) { UNUSED(p); obj_before++; }
+        mem_before = ((RegionTrace*)RegionContext::get_region())
+                       ->get_current_memory_used();
+        for (auto p : *((RegionTrace*)RegionContext::get_region()))
+        {
+          UNUSED(p);
+          obj_before++;
+        }
         break;
       case RegionType::Arena:
-        mem_before = ((RegionArena*)RegionContext::get_region())->get_current_memory_used();
-        for (auto p : *((RegionArena*)RegionContext::get_region())) { UNUSED(p); obj_before++; }
+        mem_before = ((RegionArena*)RegionContext::get_region())
+                       ->get_current_memory_used();
+        for (auto p : *((RegionArena*)RegionContext::get_region()))
+        {
+          UNUSED(p);
+          obj_before++;
+        }
         break;
       case RegionType::Rc:
-        mem_before = ((RegionRc*)RegionContext::get_region())->get_current_memory_used();
-        obj_before = ((RegionRc*)RegionContext::get_region())->get_region_size();
+        mem_before =
+          ((RegionRc*)RegionContext::get_region())->get_current_memory_used();
+        obj_before =
+          ((RegionRc*)RegionContext::get_region())->get_region_size();
         break;
     }
-    
+
     MeasureTime m(true);
 
     switch (type)
@@ -371,7 +386,7 @@ namespace verona::rt::api
   inline void region_release(Object* r)
   {
     RegionType type = Region::get_type(r->get_region());
-    
+
     // Capture memory before release for metrics
     size_t mem_before = 0;
     size_t obj_before = 0;
@@ -379,18 +394,26 @@ namespace verona::rt::api
     {
       case RegionType::Trace:
         mem_before = ((RegionTrace*)r->get_region())->get_current_memory_used();
-        for (auto p : *((RegionTrace*)r->get_region())) { UNUSED(p); obj_before++; }
+        for (auto p : *((RegionTrace*)r->get_region()))
+        {
+          UNUSED(p);
+          obj_before++;
+        }
         break;
       case RegionType::Arena:
         mem_before = ((RegionArena*)r->get_region())->get_current_memory_used();
-        for (auto p : *((RegionArena*)r->get_region())) { UNUSED(p); obj_before++; }
+        for (auto p : *((RegionArena*)r->get_region()))
+        {
+          UNUSED(p);
+          obj_before++;
+        }
         break;
       case RegionType::Rc:
         mem_before = ((RegionRc*)r->get_region())->get_current_memory_used();
         obj_before = ((RegionRc*)r->get_region())->get_region_size();
         break;
     }
-    
+
     MeasureTime m(true);
     Region::release(r);
 
