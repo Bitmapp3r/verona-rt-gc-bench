@@ -130,7 +130,8 @@ namespace arbitrary_nodes
       }
     }
   }
-
+  
+  template <RegionType rt>
   std::vector<cown_ptr<GraphRegionCown>> createGraph(int size, int regions)
   {
     std::vector<size_t> region_sizes = random_regions(regions, size);
@@ -144,7 +145,7 @@ namespace arbitrary_nodes
     std::vector<cown_ptr<GraphRegionCown>> graphRegions;
     for (size_t region_size : region_sizes)
     {
-      GraphRegion* graphRegion = new (RegionType::Trace) GraphRegion();
+      GraphRegion* graphRegion = new (rt) GraphRegion();
       auto ptr = make_cown<GraphRegionCown>(graphRegion);
       {
         UsingRegion ur(graphRegion);
@@ -208,11 +209,12 @@ namespace arbitrary_nodes
     }
   }
 
+  template <RegionType rt>
   void run_test(int size, int regions)
   {
     {
       std::vector<cown_ptr<GraphRegionCown>> graphRegions =
-        createGraph(size, regions);
+        createGraph<rt>(size, regions);
 
       for (cown_ptr<GraphRegionCown> graphRegionCown : graphRegions)
       {
