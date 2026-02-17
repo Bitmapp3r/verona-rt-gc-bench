@@ -1,55 +1,52 @@
-#include "debug/logging.h"
 #include "util/gc_benchmark.h"
-#include "func/arbitrary_nodes/arbitrary_nodes.h"
 
 #include <debug/harness.h>
+#include <dlfcn.h>
 #include <iostream>
 #include <test/opt.h>
 
 int main(int argc, char** argv)
 {
-  opt::Opt opt(argc, argv);
-
-  // Default values
-  int size = 1010;
-  int regions = 100;
-  bool enable_log = true;
-
-  // Parse command line arguments
-  if (argc >= 3)
+  if (argc < 2)
   {
-    size = std::atoi(argv[1]);
-    regions = std::atoi(argv[2]);
+    std::cerr << "Usage: " << argv[0] << " <path_to_so> [args...]\n";
+    return 1;
   }
 
-  if (argc >= 4)
+  const char* lib_path = argv[1];
+
+  void* handle = dlopen(lib_path, RTLD_NOW);
+  if (!handle)
   {
-    std::string log_arg = argv[3];
-    if (log_arg == "log")
-    {
-      enable_log = true;
-    }
+    std::cerr << "dlopen error: " << dlerror() << "\n";
+    return 1;
   }
 
-  // Enable logging if requested
-  if (enable_log)
+  // Clear any existing errors
+  dlerror();
+
+  using EntryFunc = int (*)(int, char**);
+
+  auto entry = reinterpret_cast<EntryFunc>(
+      dlsym(handle, "run_benchmark"));
+
+  const char* error = dlerror();
+  if (error != nullptr)
   {
-    Logging::enable_logging();
+    std::cerr << "dlsym error: " << error << "\n";
+    dlclose(handle);
+    return 1;
   }
-  size_t runs = 10;
-  size_t warmup_runs = 10;
 
-  SystematicTestHarness harness(argc, argv);
+  std::cout << "\nRunning with arena region\n";
 
-  std::cout << "\nRunning with arena region" << std::endl;
-  GCBenchmark trace_benchmark;
+  int new_argc = argc - 1;
+  char** new_argv = argv + 1;
 
-  trace_benchmark.run_benchmark(
-    [&, size, regions]() {
-      harness.run(
-        [=]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
-    },
-    runs,
-    warmup_runs);
-  trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
+  SystematicTestHarness harness(new_argc, new_argv);
+
+  int result = entry(new_argc, new_argv);
+
+  dlclose(handle);
+  return result;
 }

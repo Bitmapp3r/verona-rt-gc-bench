@@ -42,7 +42,16 @@ foreach(TEST_MODE "sys" "con")
     unset(SRC)
     aux_source_directory(${TESTDIR}/${TEST_CATEGORY}/${TEST} SRC)
     set(TESTNAME "${TEST_CATEGORY}-${TEST_MODE}-${TEST}")
-    add_executable(${TESTNAME} ${SRC})
+    if (${TEST_CATEGORY} STREQUAL "benchmarks")
+        add_library(${TESTNAME} SHARED ${SRC})
+        set_target_properties(${TESTNAME}
+        PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        )
+    else()
+        add_executable(${TESTNAME} ${SRC})
+    endif()
+
     target_include_directories(${TESTNAME} PRIVATE ${TESTDIR}/${TEST_CATEGORY}/${TEST} ${TESTDIR})
     add_dependencies(rt_tests ${TESTNAME})
     target_link_libraries(${TESTNAME} verona_rt)
