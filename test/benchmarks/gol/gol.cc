@@ -41,22 +41,22 @@ int main(int argc, char** argv)
 
 extern "C" int run_benchmark(int argc, char** argv)
 {
-    opt::Opt opt(argc, argv);
-    
-    // Default values
-    int size = 8;
-    int generations = 10;
-    
-    // Parse command line arguments
-    if (argc >= 2)
-    {
-      size = std::atoi(argv[1]);
-    }
-    if (argc >= 3)
-    {
-      generations = std::atoi(argv[2]);
-    }
-    
-    gol::run_test(size, generations);
-    return 0;
+  opt::Opt opt(argc, argv);
+
+  // Default values
+  int size = 8;
+  int generations = 10;
+
+  // Parse command line arguments
+  if (argc >= 2)
+  {
+    size = std::atoi(argv[1]);
+  }
+  if (argc >= 3)
+  {
+    generations = std::atoi(argv[2]);
+  }
+
+  gol::run_test(size, generations);
+  return 0;
 }

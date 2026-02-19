@@ -8,6 +8,7 @@ target_include_directories(benchmarker
 
 target_link_libraries(benchmarker
     PRIVATE verona_rt
+    PRIVATE ${CMAKE_DL_LIBS}
 )
 
 target_compile_features(benchmarker PRIVATE cxx_std_17)

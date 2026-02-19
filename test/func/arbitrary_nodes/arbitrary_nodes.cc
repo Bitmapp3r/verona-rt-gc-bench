@@ -51,21 +51,21 @@ int main(int argc, char** argv)
 
   std::cout << "\nRunning with arena region" << std::endl;
   trace_benchmark.run_benchmark(
-  [&, size, regions]() {
-    harness.run(
-      [&]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
-  },
-  2,
-  2);
-  
+    [&, size, regions]() {
+      harness.run(
+        [&]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
+    },
+    2,
+    2);
+
   arena_benchmark.run_benchmark(
-  [&, size, regions]() {
-    harness.run(
-      [&]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
-  },
-  2,
-  2);
-  
+    [&, size, regions]() {
+      harness.run(
+        [&]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
+    },
+    2,
+    2);
+
   arena_benchmark.print_summary("Arbitrary Nodes - Using Arena");
   trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
 
