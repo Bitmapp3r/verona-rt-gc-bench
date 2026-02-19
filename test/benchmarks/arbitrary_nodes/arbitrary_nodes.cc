@@ -93,36 +93,6 @@ extern "C" int run_benchmark(int argc, char** argv) {
         enable_log = true;
       }
     }
-  
-    // Enable logging if requested
-    // if (enable_log)
-    // {
-    //   Logging::enable_logging();
-    // }
-    // 
-    SystematicTestHarness harness(argc, argv);
-    GCBenchmark trace_benchmark;
-    GCBenchmark arena_benchmark;
-
-
-    trace_benchmark.run_benchmark(
-    [&, size, regions]() {
-      harness.run(
-        [&]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
-    },
-    2,
-    2);
-    
-    arena_benchmark.run_benchmark(
-    [&, size, regions]() {
-      harness.run(
-        [&]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
-    },
-    2,
-    2);
-    
-    arena_benchmark.print_summary("Arbitrary Nodes - Using Arena");
-    trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
-    
+    arbitrary_nodes::run_test<RegionType::Trace>(size, regions);
     return 0;
 }

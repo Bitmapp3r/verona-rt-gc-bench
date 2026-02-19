@@ -15,7 +15,8 @@ int main(int argc, char** argv)
 
   const char* lib_path = argv[1];
 
-  void* handle = dlopen(lib_path, RTLD_NOW);
+  // Use RTLD_GLOBAL so library shares our RegionContext (and thus the GC callback)
+  void* handle = dlopen(lib_path, RTLD_NOW | RTLD_GLOBAL);
   if (!handle)
   {
     std::cerr << "dlopen error: " << dlerror() << "\n";
@@ -38,15 +39,26 @@ int main(int argc, char** argv)
     return 1;
   }
 
-  std::cout << "\nRunning with arena region\n";
+  std::cout << "\nRunning benchmark: " << lib_path << "\n";
 
   int new_argc = argc - 1;
   char** new_argv = argv + 1;
 
-  SystematicTestHarness harness(new_argc, new_argv);
+  size_t runs = 2;
+  size_t warmup_runs = 2;
 
-  int result = entry(new_argc, new_argv);
+  SystematicTestHarness harness(new_argc, new_argv);
+  GCBenchmark benchmark;
+  
+  benchmark.run_benchmark(
+    [&]() {
+      harness.run([&]() { entry(new_argc, new_argv); });
+    },
+    runs,
+    warmup_runs);
+
+  benchmark.print_summary(lib_path);
 
   dlclose(handle);
-  return result;
+  return 0;
 }

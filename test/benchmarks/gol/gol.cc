@@ -41,34 +41,22 @@ int main(int argc, char** argv)
 
 extern "C" int run_benchmark(int argc, char** argv)
 {
-    gol::run_test();
-    return 0;
+    opt::Opt opt(argc, argv);
     
-  opt::Opt opt(argc, argv);
-  // Parses `--seed` option with default of 0
-  size_t seed = opt.is<size_t>("--seed", 0);
-  UNUSED(seed); // Not used for now
-
-#ifdef CI_BUILD
-  auto log = true;
-#else
-  auto log = opt.has("--log-all");
-#endif
-
-  if (log)
-    Logging::enable_logging();
-
-  std::cout << "Running with trace region" << std::endl;
-  GCBenchmark trace_benchmark;
-  size_t runs = 10;
-  size_t warmup_runs = 10;
-  trace_benchmark.run_benchmark([]() { gol::run_test(); }, runs, warmup_runs);
-  trace_benchmark.print_summary("Game of Life - Trace Region");
-
-  std::cout << "\nRunning with rc region" << std::endl;
-  GCBenchmark rc_benchmark;
-  rc_benchmark.run_benchmark([]() { gol_rc::run_test(); }, runs, warmup_runs);
-  rc_benchmark.print_summary("Game of Life - RC Region");
-
-  return 0;
+    // Default values
+    int size = 8;
+    int generations = 10;
+    
+    // Parse command line arguments
+    if (argc >= 2)
+    {
+      size = std::atoi(argv[1]);
+    }
+    if (argc >= 3)
+    {
+      generations = std::atoi(argv[2]);
+    }
+    
+    gol::run_test(size, generations);
+    return 0;
 }

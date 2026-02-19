@@ -261,5 +261,7 @@ void test_walker(int gridsize, int numsteps, int numwalkers)
     }
 
     delete[] grid;
+    delete[] walkers;
   }
+  region_release(root);
 }
