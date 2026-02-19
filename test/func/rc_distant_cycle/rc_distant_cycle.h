@@ -44,10 +44,15 @@ namespace rc_distant_cycle
       o->f1 = nullptr; // remove o->n1
       decref(n1); // decref n1, it should deallocate
 
+      check(debug_size() == 3); // only n1 should be deallocated so far
+
+      // Trigger cycle collection to try to collect n2->n3->n2 cycle
+      region_collect();
+
       /**
-       * n1, n2 and n3 should be deallocated. A bug of debug_size == 3 can arise
-       * if we don't add n2 to the lins stack when its ref count stays > 0 after
-       * n1 is deallocated and its reference is removed.
+       * n1, n2 and n3 should be deallocated by now. A bug of debug_size == 3
+       * can arise if we don't add n2 to the lins stack when its ref count stays
+       * > 0 after n1 is deallocated and its reference is removed.
       **/
       check(debug_size() == 1); 
     }
