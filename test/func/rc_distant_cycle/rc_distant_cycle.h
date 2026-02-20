@@ -11,7 +11,7 @@
  * This tests if a cycle (n2->n3->n2) with just one external reference that is
  * reachable from the root (n1) is correctly deallocated when we decref (and
  * indirectly deallocate) that external reference.
-**/
+ **/
 namespace rc_distant_cycle
 {
   using C = C1;
@@ -23,12 +23,12 @@ namespace rc_distant_cycle
       UsingRegion rc(o);
 
       /**
-          Graph structure:                  
-                    ┌────┐  
-                    │    ▼  
-          o──►n1──►n2   n3 
-                    ▲    │  
-                    └────┘  
+          Graph structure:
+                    ┌────┐
+                    │    ▼
+          o──►n1──►n2   n3
+                    ▲    │
+                    └────┘
       **/
       auto* n1 = new C;
       auto* n2 = new C;
@@ -53,8 +53,8 @@ namespace rc_distant_cycle
        * n1, n2 and n3 should be deallocated by now. A bug of debug_size == 3
        * can arise if we don't add n2 to the lins stack when its ref count stays
        * > 0 after n1 is deallocated and its reference is removed.
-      **/
-      check(debug_size() == 1); 
+       **/
+      check(debug_size() == 1);
     }
     region_release(o);
   }

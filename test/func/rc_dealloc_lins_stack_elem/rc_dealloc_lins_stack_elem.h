@@ -15,7 +15,7 @@
  * deallocates n2 due to it not being pushed onto the jump stack when being
  * trial decrefed from n1 in the mark_red phase (as n2 only has a reference from
  * the root at this point).
-**/
+ **/
 namespace dealloc_lins_stack_elem
 {
   using C = C1;
@@ -27,12 +27,12 @@ namespace dealloc_lins_stack_elem
       UsingRegion rc(o);
 
       /**
-          Graph structure:             
-          ┌───┐       
-          │   ▼       
-          o   n1──►n2 
-          │   ▲       
-          └───┘       
+          Graph structure:
+          ┌───┐
+          │   ▼
+          o   n1──►n2
+          │   ▲
+          └───┘
       **/
       auto* n1 = new C;
       auto* n2 = new C;
@@ -51,7 +51,7 @@ namespace dealloc_lins_stack_elem
 
       check(debug_size() == 2); // n1 should be deallocated
 
-      /** 
+      /**
        * If the lins stack still contains a reference to n1, it will try to take
        * the subgraph starting from it (n1 -> n2) and do a trial/mark_red pass -
        * it will temporarily mark each node red and decrement its references
@@ -63,8 +63,8 @@ namespace dealloc_lins_stack_elem
        * anything on the jump_stack (there is nothing) and so it deallocates n1
        * and n2. This bug can appear with the current logic if we don't remove
        * n1 from the lins stack when deallocating it.
-      **/
-      region_collect(); 
+       **/
+      region_collect();
       // The correct behaviour should result in that n2 does not deallocate.
       check(debug_size() == 2);
     }
