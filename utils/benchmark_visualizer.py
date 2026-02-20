@@ -13,6 +13,7 @@ Examples:
 """
 
 import sys
+import os
 import subprocess
 from pathlib import Path
 import matplotlib.pyplot as plt
@@ -23,33 +24,40 @@ TEST_DIR = SCRIPT_DIR / "build" / "test" / "Debug"
 
 
 def find_test_exe(name, use_sys=False):
-    """Find test executable by name (supports partial matching)."""
-    name = name.replace('.exe', '')
+    """Find test executable by name (supports partial matching, cross-platform)."""
+    is_windows = os.name == 'nt'
+    ext = '.exe' if is_windows else ''
+    name = name.replace('.exe', '') if is_windows else name
     prefix = 'func-sys-' if use_sys else 'func-con-'
-    
+
     if not TEST_DIR.exists():
         print(f"Error: Test directory not found: {TEST_DIR}")
         sys.exit(1)
-    
-    tests = list(TEST_DIR.glob("*.exe"))
-    
+
+    # Gather all possible executables
+    if is_windows:
+        tests = list(TEST_DIR.glob("*.exe"))
+    else:
+        # On Unix, look for files that are executable and not directories
+        tests = [t for t in TEST_DIR.iterdir() if t.is_file() and os.access(t, os.X_OK)]
+
     # If name doesn't have prefix, try adding it
     if not name.startswith('func-'):
         prefixed_name = prefix + name
         for t in tests:
             if t.stem == prefixed_name:
                 return t
-    
+
     # Exact match
     for t in tests:
         if t.stem == name:
             return t
-    
+
     # Partial match with correct prefix first
     matches = [t for t in tests if name in t.stem and t.stem.startswith(prefix)]
     if not matches:
         matches = [t for t in tests if name in t.stem]
-    
+
     if len(matches) == 1:
         return matches[0]
     elif len(matches) > 1:
@@ -57,7 +65,7 @@ def find_test_exe(name, use_sys=False):
         for t in sorted(matches):
             print(f"  {t.stem}")
         sys.exit(1)
-    
+
     print(f"Error: No test matching '{name}' found")
     print("\nAvailable tests:")
     for t in sorted(tests)[:20]:
@@ -205,35 +213,43 @@ if __name__ == '__main__':
     use_sys = '--sys' in sys.argv
     if use_sys:
         sys.argv.remove('--sys')
-    
+
     if len(sys.argv) < 2:
-        print("Usage: python benchmark_visualizer.py <test_name> [args...]")
+        print("Usage: python benchmark_visualizer.py <test_name|csv_file> [args...]")
         print("       python benchmark_visualizer.py <test_name> --sys [args...]")
         sys.exit(1)
-    
-    exe = find_test_exe(sys.argv[1], use_sys)
+
+    arg1 = sys.argv[1]
     extra_args = sys.argv[2:]
-    
-    # Delete any existing CSV files first
-    for old_csv in TEST_DIR.glob("*.csv"):
-        old_csv.unlink()
-    
-    # Run test from the test directory so CSVs are created there
-    cmd = [str(exe)] + extra_args
-    print(f"Running: {' '.join(cmd)}")
-    result = subprocess.run(cmd, cwd=TEST_DIR, capture_output=True, text=True)
-    print(result.stdout)
-    if result.stderr:
-        print(result.stderr)
-    
-    # Find all CSV files created in the test directory
-    csv_files = list(TEST_DIR.glob("*.csv"))
-    if not csv_files:
-        print("No CSV files found. Make sure the test uses GCBenchmark::print_summary()")
-        sys.exit(1)
-    
+
+    # If the first argument is a CSV file, skip running the test and just plot
+    csv_path = Path(arg1)
+    if csv_path.suffix == '.csv' and csv_path.exists():
+        csv_files = [csv_path]
+        TEST_DIR_USED = csv_path.parent
+    else:
+        exe = find_test_exe(arg1, use_sys)
+        # Delete any existing CSV files first
+        for old_csv in TEST_DIR.glob("*.csv"):
+            old_csv.unlink()
+
+        # Run test from the test directory so CSVs are created there
+        cmd = [str(exe)] + extra_args
+        print(f"Running: {' '.join(cmd)}")
+        result = subprocess.run(cmd, cwd=TEST_DIR, capture_output=True, text=True)
+        print(result.stdout)
+        if result.stderr:
+            print(result.stderr)
+
+        # Find all CSV files created in the test directory
+        csv_files = list(TEST_DIR.glob("*.csv"))
+        TEST_DIR_USED = TEST_DIR
+        if not csv_files:
+            print("No CSV files found. Make sure the test uses GCBenchmark::print_summary()")
+            sys.exit(1)
+
     print(f"\nFound {len(csv_files)} CSV file(s)")
-    
+
     # Parse all CSVs and combine into one plot
     all_results = {}
     label_counts = {}
@@ -255,6 +271,6 @@ if __name__ == '__main__':
         label_counts[base] = label_counts.get(base, 0) + 1
         name = base if label_counts[base] == 1 else f"{base}_{label_counts[base]}"
         all_results[name] = results
-    
-    output_file = TEST_DIR / 'benchmark_comparison.png'
+
+    output_file = TEST_DIR_USED / 'benchmark_comparison.png'
     plot(all_results, str(output_file))
