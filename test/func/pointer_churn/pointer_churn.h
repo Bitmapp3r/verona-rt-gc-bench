@@ -1,5 +1,6 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
+
 #pragma once
 
 #include <debug/harness.h>
@@ -8,51 +9,54 @@
 #include <vector>
 #include <verona.h>
 
-using namespace snmalloc;
-using namespace verona::rt;
-using namespace verona::rt::api;
+// Maximum number of outgoing edges per node
+#define MAX_OUT_EDGES 4
 
-/**
- * Graph node with multiple outgoing edges.
- * Designed to stress reference counting with pointer churn.
- *
- * The trace() function is required for Trace GC to discover
- * which objects are reachable during garbage collection.
- */
-struct GraphNode : public V<GraphNode>
+namespace pointer_churn
 {
-  static constexpr size_t MAX_EDGES = 8;
-  GraphNode* edges[MAX_EDGES] = {nullptr};
+  /**
+   * This test creates a directed graph of nodes in a chain from the root (id =
+   * 0) node. Nodes are able to have a set number of outgoing edges to other,
+   * non-root nodes. We mutate the graph by randomly adding, updating, or
+   * attempting to remove outgoing edges to other nodes. This will result in
+   * many changes to referenced nodes which can result in nodes/cycles that are
+   * disconnected from the root - these may be garbage collected (if the GC
+   * supports this) at certain intervals or immediately (depending on GC type).
+   * The graph can prematurely collapse to just the root before being able to
+   * mutate the given number of times, at which point we close and release the
+   * region and repeat the process with a new region until we have mutated the
+   * given number of times.
+   **/
 
-  // Trace function: tells GC which objects this node references
-  void trace(ObjectStack& st) const
+  // Graph node structure
+  struct GraphNode : public V<GraphNode>
   {
-    for (size_t i = 0; i < MAX_EDGES; i++)
-    {
-      if (edges[i] != nullptr)
-        st.push(edges[i]);
-    }
-  }
-};
+    GraphNode* edges[MAX_OUT_EDGES] = {nullptr};
+    size_t id;
 
-namespace pointer_churn_gc
-{
-  using Node = GraphNode;
+    // Trace function for the trace GC
+    void trace(ObjectStack& st) const
+    {
+      for (size_t i = 0; i < MAX_OUT_EDGES; i++)
+      {
+        if (edges[i] != nullptr)
+          st.push(edges[i]);
+      }
+    }
+  };
 
   /**
    * Helper function to find all nodes reachable from root via DFS.
-   * Only traverses Verona object edges, not external vectors/storage.
+   * This helps to only track nodes that are still alive after GC.
    */
-  static void find_reachable_nodes(
-    Node* node, std::vector<Node*>& reachable, std::vector<bool>& visited)
+  static void
+  find_reachable_nodes(GraphNode* node, std::vector<GraphNode*>& reachable)
   {
     if (node == nullptr)
       return;
 
-    uintptr_t addr = reinterpret_cast<uintptr_t>(node);
-    // Use a simple heuristic: check if we've seen this address before
-    // (not perfect but good for this test)
-    for (Node* seen : reachable)
+    // Check if already visited
+    for (GraphNode* seen : reachable)
     {
       if (seen == node)
         return; // Already visited
@@ -61,224 +65,195 @@ namespace pointer_churn_gc
     reachable.push_back(node);
 
     // Recursively visit all edges
-    for (size_t i = 0; i < Node::MAX_EDGES; i++)
+    for (size_t i = 0; i < MAX_OUT_EDGES; i++)
     {
       if (node->edges[i] != nullptr)
       {
-        find_reachable_nodes(node->edges[i], reachable, visited);
+        find_reachable_nodes(node->edges[i], reachable);
       }
     }
   }
-
-  /**
-   * Generic pointer churn test that works with any region type.
-   *
-   * This test creates a large graph and performs many random edge mutations
-   * to stress-test the garbage collector. The key difference from naive
-   * approaches:
-   *
-   * - NO std::vector holding all nodes (was preventing GC from collecting)
-   * - Graph is initially fully connected so all nodes are reachable
-   * - During mutations, edges are removed and nodes become unreachable
-   * - RC will deallocate unreachable nodes immediately (good stress test!)
-   * - Trace/Arena will collect them during region_collect()
-   *
-   * For RC, this is especially important: when we decref an edge to a
-   * node that now has no other incoming edges, the node is deallocated
-   * immediately. Accessing a deallocated node should crash.
-   */
   template<RegionType RT>
-  void test_pointer_churn_impl()
+  void
+  test_pointer_churn(size_t num_nodes, size_t num_mutations, size_t inputSeed)
   {
-    const char* gc_name = RT == RegionType::Trace ? "Trace" :
-      RT == RegionType::Rc                        ? "RC" :
-                                                    "Arena";
+    // Number of initial nodes in the graph (including root)
+    const size_t NUM_NODES = num_nodes;
+    // Number of mutations to perform on the graph
+    const size_t NUM_MUTATIONS = num_mutations;
+    size_t NUM_MUTATIONS_REM = NUM_MUTATIONS;
+    const size_t GC_INTERVAL = NUM_MUTATIONS / 100;
 
-    std::cout << "Testing Pointer Churn (" << gc_name << " GC)...\n";
+    // Use different seed for each GC type
+    const size_t seed = inputSeed + static_cast<size_t>(RT) * 10000;
+    std::mt19937 rng(seed);
+    size_t region_number = 1; // Initial region number/ID
 
-    // Test configuration
-    const size_t NUM_NODES = 1000; // Number of nodes in the graph
-    const size_t NUM_MUTATIONS = 1000; // Number of edge changes to perform
-
-    // Create the root region
-    auto* root = new (RT) Node;
-
+    while (NUM_MUTATIONS_REM > 0)
     {
-      // Open the region for allocation
-      UsingRegion ur(root);
-
-      // Phase 1: Create initial graph with NUM_NODES nodes
-      // We'll create a linked list chain to ensure all nodes are reachable
-      // from root: root -> node[0] -> node[1] -> ... -> node[NUM_NODES-1]
-      std::cout << "Creating " << NUM_NODES
-                << " nodes in a connected graph...\n";
-
-      Node* current = root;
-      Node* first_node = nullptr;
-      std::vector<Node*> initial_nodes;
-
-      for (size_t i = 0; i < NUM_NODES; i++)
+      std::cout << "\n" << std::string(60, '=') << "\n";
+      std::cout << "  REGION #" << region_number++
+                << " | Mutations Remaining: " << NUM_MUTATIONS_REM << "\n";
+      std::cout << std::string(60, '=') << "\n\n";
+      // Open new region and setup the graph
+      auto* root = new (RT) GraphNode;
+      root->id = 0;
+      std::vector<GraphNode*> reachableNodes;
       {
-        Node* node = new Node;
-        initial_nodes.push_back(node);
-
-        if (i == 0)
+        UsingRegion ur(root);
+        GraphNode* prevNode = root;
+        for (size_t i = 0; i < NUM_NODES - 1; i++)
         {
-          first_node = node;
-          root->edges[0] = node;
-          // No incref needed: node's initial refcount=1 covers this edge
+          GraphNode* node = new GraphNode;
+          node->id = i + 1;
+          prevNode->edges[0] = node;
+          prevNode = node;
         }
-        else
+        // Sanity check that all nodes are allocated
+        check(debug_size() == NUM_NODES);
+
+        // Random distribution for selecting an edge index to mutate
+        std::uniform_int_distribution<size_t> rndOutEdgeInd(
+          0, MAX_OUT_EDGES - 1);
+
+        while (NUM_MUTATIONS_REM > 0)
         {
-          // Link previous node to this one to ensure connectivity
-          Node* prev = initial_nodes[i - 1];
-          prev->edges[0] = node;
-          // No incref needed: node's initial refcount=1 covers this edge
-        }
-      }
+          reachableNodes.clear();
+          // Find all reachable nodes first - this is our "live" set
+          find_reachable_nodes(root, reachableNodes);
 
-      // After Phase 1: should have root + NUM_NODES objects
-      size_t expected_size = NUM_NODES + 1;
-      check(debug_size() == expected_size);
-      std::cout << "  Phase 1 complete: " << debug_size()
-                << " objects in region\n";
-
-      // Phase 2: Perform random edge mutations (the "churn")
-      // This is where nodes become unreachable and get garbage collected.
-      // Mutations add or remove random edges from any reachable node.
-      std::cout << "Performing " << NUM_MUTATIONS << " edge mutations...\n";
-      size_t gc_interval = NUM_MUTATIONS / 10;
-
-      // Random number generator setup:
-      // - std::mt19937: Mersenne Twister PRNG (fast, high-quality random
-      // numbers)
-      //   Seeded with 12345 for reproducibility (same random sequence every
-      //   run)
-      // - std::uniform_int_distribution: Maps Mersenne Twister output to a
-      // uniform range
-      //   Usage: calling node_dist(rng) generates next random number in [0,
-      //   NUM_NODES-1]
-      std::mt19937 rng(12345); // Fixed seed for reproducibility
-      std::uniform_int_distribution<size_t> node_dist(0, NUM_NODES - 1);
-      std::uniform_int_distribution<size_t> edge_dist(
-        0, Node::MAX_EDGES - 1); // Include [0] so mutations can break the chain
-
-      for (size_t iter = 0; iter < NUM_MUTATIONS; iter++)
-      {
-        // Find all reachable nodes (expensive but necessary without the vector)
-        std::vector<Node*> reachable_nodes;
-        std::vector<bool> visited(NUM_NODES, false);
-        find_reachable_nodes(root, reachable_nodes, visited);
-
-        // Pick a random reachable node to mutate
-        if (reachable_nodes.empty())
-        {
-          // If no nodes are reachable, we're done with the test
-          std::cout << "  All nodes have been garbage collected!\n";
-          break;
-        }
-
-        std::uniform_int_distribution<size_t> reachable_dist(
-          0, reachable_nodes.size() - 1);
-        Node* from_node = reachable_nodes[reachable_dist(rng)];
-
-        size_t edge_idx = edge_dist(rng);
-
-        // 50% chance to create edge, 50% to destroy edge
-        if (rng() % 2 == 0)
-        {
-          // Create/update edge to a random node
-          size_t to_idx = node_dist(rng);
-          Node* to_node = initial_nodes[to_idx];
-
-          if constexpr (RT == RegionType::Rc)
+          if (reachableNodes.size() == 1)
           {
-            // RC: IMPORTANT - incref new BEFORE decref old
-            // Safe pattern: increment reference before modifying pointer
-            incref(to_node);
-            if (from_node->edges[edge_idx] != nullptr)
+            std::cout << "\n    Only root node remaining, closing and "
+                         "releasing region...\n";
+            break;
+          }
+
+          std::uniform_int_distribution<size_t> rndSrcNodeInd(
+            0, reachableNodes.size() - 1);
+
+          /** MUST NOT include index 0 as it may lead to root node being
+           *selected as destination, which would cause its ref count to be
+           *changed. It appears that the root's ref count might be managed
+           *internally and so manually modifying it like this may cause an error
+           *- it's best to leave it from being referenced.
+           **/
+          std::uniform_int_distribution<size_t> rndDstNodeInd(
+            1, reachableNodes.size() - 1);
+          std::uniform_int_distribution<size_t> rndOutEdgeInd(
+            0, MAX_OUT_EDGES - 1);
+          GraphNode* edgeSrcNode = reachableNodes[rndSrcNodeInd(rng)];
+          GraphNode* newEdgeDstNode = reachableNodes[rndDstNodeInd(rng)];
+
+          size_t edgeIdx = rndOutEdgeInd(rng);
+          GraphNode* oldEdgeDstNode = edgeSrcNode->edges[edgeIdx];
+
+          if (rng() % 2 == 0) // Add/update edge
+          {
+            edgeSrcNode->edges[edgeIdx] = newEdgeDstNode;
+            if constexpr (RT == RegionType::Rc) // Ref count adjustment for RC
             {
-              decref(from_node->edges[edge_idx]);
+              incref(newEdgeDstNode);
             }
-            from_node->edges[edge_idx] = to_node;
-          }
-          else
-          {
-            // Trace/Arena: just update the pointer
-            from_node->edges[edge_idx] = to_node;
-          }
-        }
-        else
-        {
-          // Destroy edge (may cause RC to deallocate target!)
-          // For RC: if this is the last reference to the node, decref triggers
-          // immediate deallocation. The node becomes unreachable and is freed.
-          if constexpr (RT == RegionType::Rc)
-          {
-            // RC: decrement reference when removing edge
-            if (from_node->edges[edge_idx] != nullptr)
+            if (oldEdgeDstNode != nullptr)
             {
-              decref(from_node->edges[edge_idx]);
-              from_node->edges[edge_idx] = nullptr;
+              // Save ID before decref (which may deallocate the node)
+              size_t oldId = oldEdgeDstNode->id;
+              if constexpr (RT == RegionType::Rc)
+              {
+                decref(oldEdgeDstNode); // Ref count adjustment for RC
+              }
+              std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": "
+                        << oldId << " → " << newEdgeDstNode->id << "\n";
+            }
+            else
+            {
+              std::cout << "  [ADD]    Node " << edgeSrcNode->id << " → Node "
+                        << newEdgeDstNode->id << "\n";
             }
           }
-          else
+          else // Remove edge
           {
-            from_node->edges[edge_idx] = nullptr;
+            if (oldEdgeDstNode == nullptr)
+            {
+              std::cout << "  [SKIP]   No edge to remove from edge index "
+                        << edgeIdx << " of Node " << edgeSrcNode->id << "\n";
+            }
+            else
+            {
+              // Save ID before decref (which may deallocate the node)
+              size_t oldId = oldEdgeDstNode->id;
+              edgeSrcNode->edges[edgeIdx] = nullptr;
+              if constexpr (RT == RegionType::Rc)
+              {
+                decref(oldEdgeDstNode); // Ref count adjustment for RC
+              }
+              std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " ╳→ Node "
+                        << oldId << "\n";
+            }
           }
-        }
 
-        // Periodically run GC to collect unreachable nodes
-        if (iter % gc_interval == 0)
+          if (NUM_MUTATIONS_REM % GC_INTERVAL == 0)
+          {
+            if constexpr (RT != RegionType::Arena)
+            {
+              region_collect(); // Collect garbage for non-arena regions
+            }
+            reachableNodes.clear();
+            find_reachable_nodes(root, reachableNodes);
+            std::cout << "  " << std::string(56, '-') << "\n";
+            std::cout << "  [REGION STATS] Allocated: " << debug_size()
+                      << " | Reachable: " << reachableNodes.size() << "\n";
+            std::cout << "  " << std::string(56, '-') << "\n\n";
+          }
+
+          NUM_MUTATIONS_REM--;
+        }
+        // Final region stats once we finished mutating or graph has collapsed
+        if constexpr (RT != RegionType::Arena)
         {
-          std::cout << "  GC at iteration " << iter << "...\n";
-          if constexpr (RT != RegionType::Arena)
-          {
-            // Trace & RC: run garbage collection
-            // Arena: no GC, everything freed at region release
-            region_collect();
-          }
+          region_collect();
         }
+        reachableNodes.clear();
+        find_reachable_nodes(root, reachableNodes);
+        std::cout << "\n  " << std::string(56, '-') << "\n";
+        std::cout << "  [REGION FINAL] Allocated: " << debug_size()
+                  << " | Reachable: " << reachableNodes.size() << "\n";
+        std::cout << "  " << std::string(56, '-') << "\n\n\n";
       }
-
-      // Phase 3: Final garbage collection
-      std::cout << "Final GC...\n";
-      if constexpr (RT != RegionType::Arena)
-      {
-        region_collect();
-      }
-
-      // After final GC, check how many objects remain
-      size_t final_size = debug_size();
-      std::cout << "Test complete! Final object count: " << final_size << "\n";
+      // Release region and repeat if we still have mutations to perform
+      region_release(root);
     }
-
-    // Release the entire region (all objects deallocated)
-    region_release(root);
   }
 
-  // Entry point - selects GC type based on argument
-  void run_test(const std::string& gc_type)
+  void run_test(
+    const std::string& gc_type,
+    size_t num_nodes,
+    size_t num_mutations,
+    size_t inputSeed)
   {
     if (gc_type == "trace")
     {
-      std::cout << "Using Trace (Mark-Sweep) GC\n";
-      test_pointer_churn_impl<RegionType::Trace>();
-    }
-    else if (gc_type == "rc")
-    {
-      std::cout << "Using Reference Counting GC\n";
-      test_pointer_churn_impl<RegionType::Rc>();
+      std::cout << "\n╔═══════════════════════════════════════╗\n";
+      std::cout << "║  Pointer Churn Test: Trace GC         ║\n";
+      std::cout << "╚═══════════════════════════════════════╝\n";
+      test_pointer_churn<RegionType::Trace>(
+        num_nodes, num_mutations, inputSeed);
     }
     else if (gc_type == "arena")
     {
-      std::cout << "Using Arena (No GC)\n";
-      test_pointer_churn_impl<RegionType::Arena>();
+      std::cout << "\n╔═══════════════════════════════════════╗\n";
+      std::cout << "║  Pointer Churn Test: Arena            ║\n";
+      std::cout << "╚═══════════════════════════════════════╝\n";
+      test_pointer_churn<RegionType::Arena>(
+        num_nodes, num_mutations, inputSeed);
     }
     else
     {
-      std::cout << "Unknown GC type: " << gc_type << "\n";
-      std::cout << "Valid options: trace, rc, arena\n";
+      std::cout << "\n╔═══════════════════════════════════════╗\n";
+      std::cout << "║  Pointer Churn Test: RC GC            ║\n";
+      std::cout << "╚═══════════════════════════════════════╝\n";
+      test_pointer_churn<RegionType::Rc>(num_nodes, num_mutations, inputSeed);
     }
   }
 }
