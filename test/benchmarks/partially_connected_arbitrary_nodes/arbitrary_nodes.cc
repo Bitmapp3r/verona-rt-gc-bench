@@ -50,6 +50,8 @@ int main(int argc, char** argv)
 
   GCBenchmark trace_benchmark;
   GCBenchmark arena_benchmark;
+
+
   std::cout << "Running Churn" << std::endl;
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
@@ -77,5 +79,33 @@ int main(int argc, char** argv)
   arena_benchmark.print_summary("Arbitrary Nodes - Using Arena");
   trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
 
+  return 0;
+}
+
+extern "C" int run_benchmark(int argc, char** argv)
+{
+  opt::Opt opt(argc, argv);
+
+  // Default values
+  int size = 1010;
+  int regions = 100;
+  bool enable_log = true;
+
+  // Parse command line arguments
+  if (argc >= 3)
+  {
+    size = std::atoi(argv[1]);
+    regions = std::atoi(argv[2]);
+  }
+
+  if (argc >= 4)
+  {
+    std::string log_arg = argv[3];
+    if (log_arg == "log")
+    {
+      enable_log = true;
+    }
+  }
+  arbitrary_nodes::run_test<RegionType::Trace>(size, regions);
   return 0;
 }
