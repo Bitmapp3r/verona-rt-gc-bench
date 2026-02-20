@@ -15,9 +15,11 @@ int main(int argc, char** argv)
   opt::Opt opt(argc, argv);
 
   // Default values
-  int size = 1010;
-  int regions = 100;
-  bool enable_log = true;
+  //int size = 10;
+  int size = 101;
+  int regions = 10;
+  //int regions = 1;
+  bool enable_log = false;
 
   // Parse command line arguments
   if (argc >= 3)
@@ -48,6 +50,14 @@ int main(int argc, char** argv)
 
   std::cout << "\nRunning with arena region" << std::endl;
   GCBenchmark trace_benchmark;
+
+  std::cout << "Running Churn" << std::endl;
+  trace_benchmark.run_benchmark(
+    [&, size, regions]() {
+      harness.run(
+        [=]() {arbitrary_nodes::run_churn_test<RegionType::Trace>(size, regions); });
+    }, runs, warmup_runs
+  );
 
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
