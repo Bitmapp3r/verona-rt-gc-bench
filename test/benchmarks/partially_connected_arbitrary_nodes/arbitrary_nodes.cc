@@ -82,7 +82,13 @@ int main(int argc, char** argv)
   return 0;
 }
 
-extern "C" int run_benchmark(int argc, char** argv)
+#if defined(_WIN32) || defined(_WIN64)
+#  define EXPORT __declspec(dllexport)
+#else
+#  define EXPORT
+#endif
+
+extern "C" EXPORT int run_benchmark(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
 

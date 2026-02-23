@@ -2,6 +2,7 @@
 
 #include <debug/harness.h>
 #include <iostream>
+#include <region/region_api.h>
 #include <test/opt.h>
 
 #if defined(_WIN32) || defined(_WIN64)
@@ -91,10 +92,36 @@ int main(int argc, char** argv)
   SystematicTestHarness harness(new_argc, new_argv);
   GCBenchmark benchmark;
 
+#ifdef PLATFORM_WINDOWS
+  // On Windows, set callback in DLL's RegionContext
+  using CallbackSetter = void (*)(void (*)(uint64_t, verona::rt::RegionType, size_t, size_t));
+  auto set_callback = reinterpret_cast<CallbackSetter>(LIB_SYM(handle, "set_gc_callback"));
+  
+  auto test_wrapper = [&]() {
+    if (set_callback)
+    {
+      auto* local_callback = verona::rt::api::internal::RegionContext::get_gc_callback();
+      if (local_callback)
+      {
+        static std::function<void(uint64_t, verona::rt::RegionType, size_t, size_t)>* current = nullptr;
+        current = local_callback;
+        set_callback([](uint64_t d, verona::rt::RegionType r, size_t m, size_t o) {
+          if (current && *current) (*current)(d, r, m, o);
+        });
+      }
+    }
+    harness.run([&]() { entry(new_argc, new_argv); });
+    if (set_callback) set_callback(nullptr);
+  };
+  
+  benchmark.run_benchmark(test_wrapper, runs, warmup_runs);
+#else
+  // On Linux, RTLD_GLOBAL lets DLL use our RegionContext directly
   benchmark.run_benchmark(
     [&]() { harness.run([&]() { entry(new_argc, new_argv); }); },
     runs,
     warmup_runs);
+#endif
 
   benchmark.print_summary(lib_path);
   LIB_CLOSE(handle);
