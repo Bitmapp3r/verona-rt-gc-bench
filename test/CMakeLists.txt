@@ -15,7 +15,7 @@ ProcessorCount(N)
 set (CON_CORES 2 ${N})
 endif()
 
-# Look for lldb 
+# Look for lldb
 find_program(LLDB NAMES lldb)
 # For CI builds attempt to run inside LLDB to get more information
 # for crashes.
@@ -43,10 +43,15 @@ foreach(TEST_MODE "sys" "con")
     aux_source_directory(${TESTDIR}/${TEST_CATEGORY}/${TEST} SRC)
     set(TESTNAME "${TEST_CATEGORY}-${TEST_MODE}-${TEST}")
     if (${TEST_CATEGORY} STREQUAL "benchmarks")
+        set(BENCHMARK_OUTPUT_DIR "${CMAKE_BINARY_DIR}/test/benchmarks/${TEST_MODE}")
+        file(MAKE_DIRECTORY ${BENCHMARK_OUTPUT_DIR})
         add_library(${TESTNAME} SHARED ${SRC})
         set_target_properties(${TESTNAME}
         PROPERTIES
         POSITION_INDEPENDENT_CODE ON
+        LIBRARY_OUTPUT_DIRECTORY ${BENCHMARK_OUTPUT_DIR}
+        RUNTIME_OUTPUT_DIRECTORY ${BENCHMARK_OUTPUT_DIR}
+        PREFIX ""
         )
     else()
         add_executable(${TESTNAME} ${SRC})
