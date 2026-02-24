@@ -12,7 +12,9 @@
 #include <region/region_api.h>
 #include <sstream>
 #include <unordered_map>
+
 #include <vector>
+#include <filesystem>
 
 namespace verona::rt::api
 {
@@ -465,10 +467,16 @@ namespace verona::rt::api
 
   inline void GCBenchmark::write_csv(const char* filename) const
   {
-    std::ofstream file(filename);
+    // Ensure CSVs directory exists (platform-independent)
+    std::string dir = "CSVs";
+    std::filesystem::create_directory(dir);
+    // Only use the base filename to avoid nested paths
+    std::string base_filename = std::filesystem::path(filename).filename().string();
+    std::string fullpath = dir + "/" + base_filename;
+    std::ofstream file(fullpath);
     if (!file.is_open())
     {
-      std::cerr << "Error: Could not open file " << filename
+      std::cerr << "Error: Could not open file " << fullpath
                 << " for writing\n";
       return;
     }
