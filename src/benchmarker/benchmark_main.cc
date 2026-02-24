@@ -42,29 +42,49 @@ inline const char* lib_last_error()
 
 int main(int argc, char** argv)
 {
-  if (argc < 2)
+  size_t runs = 0;
+  size_t warmup_runs = 0;
+  int filepath_index = -1;
+
+  for (int i = 1; i < argc; ++i)
   {
-    std::cerr << "Usage: " << argv[0] << " <path_to_so> [args...]\n";
+    if (std::strcmp(argv[i], "--runs") == 0 && i + 1 < argc)
+    {
+      runs = std::stoul(argv[++i]);
+    }
+    else if (std::strcmp(argv[i], "--warmup_runs") == 0 && i + 1 < argc)
+    {
+      warmup_runs = std::stoul(argv[++i]);
+    }
+    else
+    {
+      filepath_index = i;
+      break;
+    }
+  }
+
+  if (filepath_index == -1 || runs == 0 || warmup_runs == 0)
+  {
+    std::cerr << "Usage: " << argv[0] << " --runs <n> --warmup_runs <n> <path_to_so> [args...]\n";
     return 1;
   }
 
-  const char* lib_path = argv[1];
+  // Shift argc/argv to point at filepath and beyond
+  int new_argc = argc - filepath_index;
+  char** new_argv = argv + filepath_index;
 
+  const char* lib_path = new_argv[0];
   LibHandle handle = LIB_OPEN(lib_path);
   if (!handle)
   {
     std::cerr << "Library open error: " << lib_last_error() << "\n";
     return 1;
   }
-
 #ifndef PLATFORM_WINDOWS
-  // Clear any existing errors (Linux only — dlerror is stateful)
   dlerror();
 #endif
-
   using EntryFunc = int (*)(int, char**);
   auto entry = reinterpret_cast<EntryFunc>(LIB_SYM(handle, "run_benchmark"));
-
 #ifdef PLATFORM_WINDOWS
   if (!entry)
   {
@@ -81,19 +101,10 @@ int main(int argc, char** argv)
     return 1;
   }
 #endif
-
   std::cout << "\nRunning benchmark: " << lib_path << "\n";
-
-  int new_argc = argc - 1;
-  char** new_argv = argv + 1;
-  size_t runs = 2;
-  size_t warmup_runs = 2;
-
   SystematicTestHarness harness(new_argc, new_argv);
   GCBenchmark benchmark;
-
 #ifdef PLATFORM_WINDOWS
-  // On Windows, set callback in DLL's RegionContext
   using CallbackSetter = void (*)(void (*)(uint64_t, verona::rt::RegionType, size_t, size_t));
   auto set_callback = reinterpret_cast<CallbackSetter>(LIB_SYM(handle, "set_gc_callback"));
   
@@ -116,13 +127,11 @@ int main(int argc, char** argv)
   
   benchmark.run_benchmark(test_wrapper, runs, warmup_runs);
 #else
-  // On Linux, RTLD_GLOBAL lets DLL use our RegionContext directly
   benchmark.run_benchmark(
     [&]() { harness.run([&]() { entry(new_argc, new_argv); }); },
     runs,
     warmup_runs);
 #endif
-
   benchmark.print_summary(lib_path);
   LIB_CLOSE(handle);
   return 0;
