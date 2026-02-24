@@ -363,7 +363,7 @@ namespace verona::rt::api
     }
 
     // Auto-write CSV file (convert test name to filename: spaces->underscores,
-    // lowercase)
+    // lowercase, append region type if available)
     std::string csv_filename = test_name;
     for (char& c : csv_filename)
     {
@@ -372,7 +372,18 @@ namespace verona::rt::api
       else
         c = std::tolower(c);
     }
-    csv_filename += ".csv";
+    // Determine region type from measurements (if available)
+    std::string region_type_str;
+    if (!all_gc_measurements_with_type.empty())
+    {
+      int region_type = (int)all_gc_measurements_with_type[0].second;
+      const char* type_names[] = {"trace", "arena", "rc"};
+      if (region_type >= 0 && region_type < 3)
+        region_type_str = std::string("_") + type_names[region_type];
+      else
+        region_type_str = "_unknown";
+    }
+    csv_filename += region_type_str + ".csv";
     write_csv(csv_filename.c_str());
 
     // Sort measurements for percentile calculation
