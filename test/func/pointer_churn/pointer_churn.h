@@ -164,11 +164,11 @@ namespace pointer_churn
                 decref(oldEdgeDstNode); // Ref count adjustment for RC
               }
               std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": "
-                        << oldId << " → " << newEdgeDstNode->id << "\n";
+                        << oldId << " -> " << newEdgeDstNode->id << "\n";
             }
             else
             {
-              std::cout << "  [ADD]    Node " << edgeSrcNode->id << " → Node "
+              std::cout << "  [ADD]    Node " << edgeSrcNode->id << " -> Node "
                         << newEdgeDstNode->id << "\n";
             }
           }
@@ -188,7 +188,7 @@ namespace pointer_churn
               {
                 decref(oldEdgeDstNode); // Ref count adjustment for RC
               }
-              std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " ╳→ Node "
+              std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " ╳-> Node "
                         << oldId << "\n";
             }
           }
@@ -234,25 +234,25 @@ namespace pointer_churn
   {
     if (gc_type == "trace")
     {
-      std::cout << "\n╔═══════════════════════════════════════╗\n";
-      std::cout << "║  Pointer Churn Test: Trace GC         ║\n";
-      std::cout << "╚═══════════════════════════════════════╝\n";
+      std::cout << "\n========================================\n";
+      std::cout << "|  Pointer Churn Test: Trace GC         |\n";
+      std::cout << "========================================\n";
       test_pointer_churn<RegionType::Trace>(
         num_nodes, num_mutations, inputSeed);
     }
     else if (gc_type == "arena")
     {
-      std::cout << "\n╔═══════════════════════════════════════╗\n";
-      std::cout << "║  Pointer Churn Test: Arena            ║\n";
-      std::cout << "╚═══════════════════════════════════════╝\n";
+      std::cout << "\n========================================\n";
+      std::cout << "|  Pointer Churn Test: Arena            |\n";
+      std::cout << "========================================\n";
       test_pointer_churn<RegionType::Arena>(
         num_nodes, num_mutations, inputSeed);
     }
     else
     {
-      std::cout << "\n╔═══════════════════════════════════════╗\n";
-      std::cout << "║  Pointer Churn Test: RC GC            ║\n";
-      std::cout << "╚═══════════════════════════════════════╝\n";
+      std::cout << "\n========================================\n";
+      std::cout << "|  Pointer Churn Test: RC GC            |\n";
+      std::cout << "========================================\n";
       test_pointer_churn<RegionType::Rc>(num_nodes, num_mutations, inputSeed);
     }
   }
