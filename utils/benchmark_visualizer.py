@@ -206,6 +206,9 @@ if __name__ == "__main__":
     use_sys = "--sys" in sys.argv
     if use_sys:
         sys.argv.remove("--sys")
+        TEST_DIR = TEST_DIR / "sys"
+    else:
+        TEST_DIR = TEST_DIR / "con"
 
     # Argument parsing: python benchmark_visualizer.py [runs] [warmup_runs] <test_name|csv_file> [args...]
     args = sys.argv[1:]
@@ -253,7 +256,7 @@ if __name__ == "__main__":
         test_libs = list(TEST_DIR.glob(f"benchmarks-con-*{test_lib_ext}"))
 
         # Construct the test library filename
-        test_lib_name = f"libbenchmarks-con-{test_name}{test_lib_ext}"
+        test_lib_name = f"benchmarks-con-{test_name}{test_lib_ext}"
         test_lib_path = TEST_DIR / test_lib_name
         if not test_lib_path.exists():
             print(f"Error: Test library not found: {test_lib_path}")
