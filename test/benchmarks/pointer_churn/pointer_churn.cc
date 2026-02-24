@@ -13,9 +13,11 @@
 #endif
 
 #if defined(_WIN32) || defined(_WIN64)
-extern "C" EXPORT void set_gc_callback(void (*callback)(uint64_t, verona::rt::RegionType, size_t, size_t))
+extern "C" EXPORT void set_gc_callback(
+  void (*callback)(uint64_t, verona::rt::RegionType, size_t, size_t))
 {
-  static std::function<void(uint64_t, verona::rt::RegionType, size_t, size_t)> func;
+  static std::function<void(uint64_t, verona::rt::RegionType, size_t, size_t)>
+    func;
   if (callback)
   {
     func = callback;

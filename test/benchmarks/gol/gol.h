@@ -53,10 +53,11 @@ namespace gol
     return count;
   }
 
+  template <RegionType rt>
   inline void run_test(int size, int generations)
   {
     // Use our new container root
-    auto* root = new (RegionType::Trace) SimRoot();
+    auto* root = new (rt) SimRoot();
 
     {
       UsingRegion rr(root);
@@ -142,11 +143,6 @@ namespace gol
     }
     region_release(root);
     // Skip debug_check_empty() for benchmarking
-  }
-
-  void run_test()
-  {
-    run_test(8, 10);
   }
 
 }

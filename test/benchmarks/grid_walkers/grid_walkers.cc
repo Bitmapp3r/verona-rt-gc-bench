@@ -1,16 +1,8 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
 #include "grid_walkers.h"
-
-#include "util/gc_benchmark.h"
-
-int main(int argc, char** argv)
-{
-  opt::Opt opt(argc, argv);
-
-  test_walker(40, 20, 10);
-  return 0;
-}
+#include "benchmark_main.h"
+#include "region/region_base.h"
 
 #if defined(_WIN32) || defined(_WIN64)
 #  define EXPORT __declspec(dllexport)
@@ -18,7 +10,7 @@ int main(int argc, char** argv)
 #  define EXPORT
 #endif
 
-extern "C" EXPORT int run_benchmark(int argc, char** argv)
+extern "C" EXPORT int run_benchmark(RegionType rt, int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
 
@@ -41,6 +33,8 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
     numwalkers = std::atoi(argv[3]);
   }
 
-  test_walker(gridsize, numsteps, numwalkers);
+  run_test_with_region(rt, [&]<RegionType R>() {
+    return test_walker<R>(gridsize, numsteps, numwalkers);
+  });
   return 0;
 }

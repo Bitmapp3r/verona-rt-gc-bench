@@ -1,9 +1,12 @@
+#include "benchmark_main.h"
+
+#include "region/region_base.h"
 #include "util/gc_benchmark.h"
 
-#include <debug/harness.h>
 #include <iostream>
-#include <region/region_api.h>
-#include <test/opt.h>
+
+constexpr std::array<RegionType, 3> AllRegionTypes = {
+  RegionType::Arena, RegionType::Trace, RegionType::Rc};
 
 #if defined(_WIN32) || defined(_WIN64)
 #  define PLATFORM_WINDOWS
@@ -65,7 +68,8 @@ int main(int argc, char** argv)
 
   if (filepath_index == -1 || runs == 0 || warmup_runs == 0)
   {
-    std::cerr << "Usage: " << argv[0] << " --runs <n> --warmup_runs <n> <path_to_so> [args...]\n";
+    std::cerr << "Usage: " << argv[0]
+              << " --runs <n> --warmup_runs <n> <path_to_so> [args...]\n";
     return 1;
   }
 
@@ -83,7 +87,7 @@ int main(int argc, char** argv)
 #ifndef PLATFORM_WINDOWS
   dlerror();
 #endif
-  using EntryFunc = int (*)(int, char**);
+  using EntryFunc = int (*)(RegionType rt, int, char**);
   auto entry = reinterpret_cast<EntryFunc>(LIB_SYM(handle, "run_benchmark"));
 #ifdef PLATFORM_WINDOWS
   if (!entry)
@@ -105,32 +109,44 @@ int main(int argc, char** argv)
   SystematicTestHarness harness(new_argc, new_argv);
   GCBenchmark benchmark;
 #ifdef PLATFORM_WINDOWS
-  using CallbackSetter = void (*)(void (*)(uint64_t, verona::rt::RegionType, size_t, size_t));
-  auto set_callback = reinterpret_cast<CallbackSetter>(LIB_SYM(handle, "set_gc_callback"));
-  
+  using CallbackSetter =
+    void (*)(void (*)(uint64_t, verona::rt::RegionType, size_t, size_t));
+  auto set_callback =
+    reinterpret_cast<CallbackSetter>(LIB_SYM(handle, "set_gc_callback"));
+
   auto test_wrapper = [&]() {
     if (set_callback)
     {
-      auto* local_callback = verona::rt::api::internal::RegionContext::get_gc_callback();
+      auto* local_callback =
+        verona::rt::api::internal::RegionContext::get_gc_callback();
       if (local_callback)
       {
-        static std::function<void(uint64_t, verona::rt::RegionType, size_t, size_t)>* current = nullptr;
+        static std::function<void(
+          uint64_t, verona::rt::RegionType, size_t, size_t)>* current = nullptr;
         current = local_callback;
-        set_callback([](uint64_t d, verona::rt::RegionType r, size_t m, size_t o) {
-          if (current && *current) (*current)(d, r, m, o);
-        });
+        set_callback(
+          [](uint64_t d, verona::rt::RegionType r, size_t m, size_t o) {
+            if (current && *current)
+              (*current)(d, r, m, o);
+          });
       }
     }
-    harness.run([&]() { entry(new_argc, new_argv); });
-    if (set_callback) set_callback(nullptr);
+    harness.run([&]() { entry(rt, new_argc, new_argv); });
+    if (set_callback)
+      set_callback(nullptr);
   };
-  
+
   benchmark.run_benchmark(test_wrapper, runs, warmup_runs);
 #else
-  benchmark.run_benchmark(
-    [&]() { harness.run([&]() { entry(new_argc, new_argv); }); },
-    runs,
-    warmup_runs);
+  for (auto rt : AllRegionTypes)
+  {
+    if (rt == RegionType::Arena)
+      continue;
+    benchmark.run_benchmark(
+      [&]() { harness.run([&]() { entry(rt, new_argc, new_argv); }); },
+      runs,
+      warmup_runs);
+  }
 #endif
   benchmark.print_summary(lib_path);
   LIB_CLOSE(handle);

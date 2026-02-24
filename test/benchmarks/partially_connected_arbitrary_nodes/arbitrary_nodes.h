@@ -49,7 +49,10 @@ namespace arbitrary_nodes
       id = num_nodes;
     }
 
-    ~Node() {std::cout << "node " << id << " died\n";}
+    ~Node()
+    {
+      std::cout << "node " << id << " died\n";
+    }
 
     void trace(ObjectStack& st) const
     {
@@ -109,16 +112,19 @@ namespace arbitrary_nodes
     return result;
   }
 
-  std::pair<size_t, size_t> random_pair(int max) {
+  std::pair<size_t, size_t> random_pair(int max)
+  {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<size_t> dist(0, max - 1);
-    if (max == 1) {
+    if (max == 1)
+    {
       return std::make_pair(0, 0);
     }
     size_t first = dist(gen);
     size_t second;
-    do {
+    do
+    {
       second = dist(gen);
     } while (first == second);
     return std::make_pair(first, second);
@@ -150,18 +156,23 @@ namespace arbitrary_nodes
     }
   }
 
-  void partially_connect(const std::vector<Node*>& nodes) {
+  void partially_connect(const std::vector<Node*>& nodes)
+  {
     std::random_device rd;
     std::mt19937 gen(rd());
 
     std::uniform_real_distribution<float> dist(0.0, 1.0);
     float connectedness = 0.7f;
     // nodes.neighbours should have size connectedness% of nodes.size
-    for (Node* u : nodes) {
-      if (!u) continue;
+    for (Node* u : nodes)
+    {
+      if (!u)
+        continue;
 
-      for (Node* v : nodes) {
-        if (!v || u == v) continue;
+      for (Node* v : nodes)
+      {
+        if (!v || u == v)
+          continue;
 
         if (dist(gen) < connectedness)
           u->neighbours.insert(v);
@@ -170,7 +181,8 @@ namespace arbitrary_nodes
   }
 
   template<RegionType rt>
-  std::vector<cown_ptr<GraphRegionCown>> createGraph(int size, int regions, bool partial = false)
+  std::vector<cown_ptr<GraphRegionCown>>
+  createGraph(int size, int regions, bool partial = false)
   {
     std::vector<size_t> region_sizes = random_regions(regions, size);
     std::cout << "Region sizes: ";
@@ -202,7 +214,7 @@ namespace arbitrary_nodes
 
         if (partial)
           partially_connect(all_nodes);
-        else 
+        else
           fully_connect(all_nodes);
       }
 
@@ -225,17 +237,17 @@ namespace arbitrary_nodes
     return false;
   }
 
-  bool addArc(Node* src, Node* dst) 
+  bool addArc(Node* src, Node* dst)
   {
     if (!src || !dst)
       return false;
 
-    if (src->neighbours.find(dst) == src->neighbours.end()) {
+    if (src->neighbours.find(dst) == src->neighbours.end())
+    {
       src->neighbours.insert(dst);
     }
     return true;
   }
-
 
   Node* traverse(Node* cur, Node* dst)
   {
@@ -262,21 +274,24 @@ namespace arbitrary_nodes
     }
   }
 
-
-  void churn_region(GraphRegion* graphRegion) 
+  void churn_region(GraphRegion* graphRegion)
   {
     UsingRegion ur(graphRegion);
     std::cout << "Churning Region" << std::endl;
     Node* cur = graphRegion->bridge;
     std::vector<Node*> workingSet;
     int WORKING_SET_SIZE = 20;
-    int CHURN_EPOCHS =  1;
+    int CHURN_EPOCHS = 1;
     int NEW_NODES = 4;
-    // traverse the graph picking up references in an array. then modify those nodes between each other
-    // have a chance to remove edge when traversing aswell
-    for (int k = 0; k < CHURN_EPOCHS; k++) {
+    // traverse the graph picking up references in an array. then modify those
+    // nodes between each other have a chance to remove edge when traversing
+    // aswell
+    for (int k = 0; k < CHURN_EPOCHS; k++)
+    {
       workingSet.clear();
-      while (cur && !cur->neighbours.empty() && workingSet.size() < WORKING_SET_SIZE) {
+      while (cur && !cur->neighbours.empty() &&
+             workingSet.size() < WORKING_SET_SIZE)
+      {
         Node* dst = random_element(cur->neighbours);
         workingSet.push_back(dst);
         cur = traverse(cur, dst);
@@ -284,15 +299,17 @@ namespace arbitrary_nodes
 
       // lets create some nodes and add them to the working set.
       int new_nodes = 0;
-      while (workingSet.size() < WORKING_SET_SIZE && new_nodes < NEW_NODES) {
+      while (workingSet.size() < WORKING_SET_SIZE && new_nodes < NEW_NODES)
+      {
         workingSet.push_back(new Node());
         new_nodes++;
       }
 
-           
       // link the working set together.
-      if (workingSet.size() > 2) {
-        for (int i = 0; i < WORKING_SET_SIZE; i++) {
+      if (workingSet.size() > 2)
+      {
+        for (int i = 0; i < WORKING_SET_SIZE; i++)
+        {
           // pick 2 random nodes;
           auto [first, second] = random_pair(workingSet.size());
           addArc(workingSet.at(first), workingSet.at(second));
@@ -300,8 +317,6 @@ namespace arbitrary_nodes
       }
     }
   }
-
-
 
   template<RegionType rt>
   void run_test(int size, int regions)
@@ -318,40 +333,41 @@ namespace arbitrary_nodes
     }
   }
 
-  void start_collect(cown_ptr<GraphRegionCown> graph, long delay) {
+  void start_collect(cown_ptr<GraphRegionCown> graph, long delay) {}
 
-  }
-
-  void multi_churn(cown_ptr<GraphRegionCown>& graph, int churnsPerCollection, int churns) {
-    when (graph) 
-      << [=](auto c) {
-        churn_region(c->graphRegion);
-        for (int i = 0; i < 10; i++) {
-          when (graph) << [](auto c) {churn_region(c->graphRegion);};
-          if (i % churnsPerCollection == 0) {
-            when (graph) << [](auto c) {
-              std::cout << "RUNNING GARBAGE COLLECTION\n";
-              UsingRegion rr(c->graphRegion);
-              region_collect();};       
-          }
+  void multi_churn(
+    cown_ptr<GraphRegionCown>& graph, int churnsPerCollection, int churns)
+  {
+    when(graph) << [=](auto c) {
+      churn_region(c->graphRegion);
+      for (int i = 0; i < 10; i++)
+      {
+        when(graph) << [](auto c) { churn_region(c->graphRegion); };
+        if (i % churnsPerCollection == 0)
+        {
+          when(graph) << [](auto c) {
+            std::cout << "RUNNING GARBAGE COLLECTION\n";
+            UsingRegion rr(c->graphRegion);
+            region_collect();
+          };
         }
-      };
+      }
+    };
   }
 
-  template<RegionType rt> 
-  void run_churn_test(int size, int regions) 
+  template<RegionType rt>
+  void run_churn_test(int size, int regions)
   {
     {
-      std::vector<cown_ptr<GraphRegionCown>> graphRegions = 
+      std::vector<cown_ptr<GraphRegionCown>> graphRegions =
         createGraph<rt>(size, regions, true);
-      
-      for (cown_ptr<GraphRegionCown>& graphRegionCown : graphRegions) {
+
+      for (cown_ptr<GraphRegionCown>& graphRegionCown : graphRegions)
+      {
         multi_churn(graphRegionCown, 4, 20);
       }
     }
   }
 } // namespace arbitrary_nodes
-
-
 
 // might be causing isssue because of size 1 regions?????

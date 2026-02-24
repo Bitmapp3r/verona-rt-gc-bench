@@ -2,41 +2,12 @@
 // SPDX-License-Identifier: MIT
 #include "gol.h"
 
-#include "gol_rc.h"
+#include <benchmark_main.h>
+#include "region/region_base.h"
 
 #include <debug/harness.h>
 #include <test/opt.h>
 #include <util/gc_benchmark.h>
-
-int main(int argc, char** argv)
-{
-  opt::Opt opt(argc, argv);
-  // Parses `--seed` option with default of 0
-  size_t seed = opt.is<size_t>("--seed", 0);
-  UNUSED(seed); // Not used for now
-
-#ifdef CI_BUILD
-  auto log = true;
-#else
-  auto log = opt.has("--log-all");
-#endif
-
-  if (log)
-    Logging::enable_logging();
-
-  std::cout << "Running with trace region" << std::endl;
-  GCBenchmark trace_benchmark;
-  size_t runs = 10;
-  size_t warmup_runs = 10;
-  trace_benchmark.run_benchmark([]() { gol::run_test(); }, runs, warmup_runs);
-  trace_benchmark.print_summary("gol-trace");
-
-  std::cout << "\nRunning with rc region" << std::endl;
-  GCBenchmark rc_benchmark;
-  rc_benchmark.run_benchmark([]() { gol_rc::run_test(); }, runs, warmup_runs);
-  rc_benchmark.print_summary("gol-rc");
-  return 0;
-}
 
 #if defined(_WIN32) || defined(_WIN64)
 #  define EXPORT __declspec(dllexport)
@@ -44,13 +15,16 @@ int main(int argc, char** argv)
 #  define EXPORT
 #endif
 
-// Linux shares symbols by default with RTLD_GLOBAL, but Windows DLLs need explicit bridging
+// Linux shares symbols by default with RTLD_GLOBAL, but Windows DLLs need
+// explicit bridging
 using namespace verona::rt::api::internal;
 
 #if defined(_WIN32) || defined(_WIN64)
-extern "C" EXPORT void set_gc_callback(void (*callback)(uint64_t, verona::rt::RegionType, size_t, size_t))
+extern "C" EXPORT void set_gc_callback(
+  void (*callback)(uint64_t, verona::rt::RegionType, size_t, size_t))
 {
-  static std::function<void(uint64_t, verona::rt::RegionType, size_t, size_t)> func;
+  static std::function<void(uint64_t, verona::rt::RegionType, size_t, size_t)>
+    func;
   if (callback)
   {
     func = callback;
@@ -63,7 +37,7 @@ extern "C" EXPORT void set_gc_callback(void (*callback)(uint64_t, verona::rt::Re
 }
 #endif
 
-extern "C" EXPORT int run_benchmark(int argc, char** argv)
+extern "C" EXPORT int run_benchmark(RegionType rt,int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
 
@@ -81,6 +55,9 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
     generations = std::atoi(argv[2]);
   }
 
-  gol::run_test(size, generations);
+  run_test_with_region(rt, [&]<RegionType R>() {
+    return gol::run_test<R>(size, generations);
+  });
+  
   return 0;
 }

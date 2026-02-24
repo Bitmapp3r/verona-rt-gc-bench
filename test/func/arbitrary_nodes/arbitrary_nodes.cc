@@ -15,10 +15,10 @@ int main(int argc, char** argv)
   opt::Opt opt(argc, argv);
 
   // Default values
-  //int size = 10;
+  // int size = 10;
   int size = 101;
   int regions = 10;
-  //int regions = 1;
+  // int regions = 1;
   bool enable_log = false;
 
   // Parse command line arguments
@@ -53,10 +53,12 @@ int main(int argc, char** argv)
   std::cout << "Running Churn" << std::endl;
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
-      harness.run(
-        [=]() {arbitrary_nodes::run_churn_test<RegionType::Trace>(size, regions); });
-    }, runs, warmup_runs
-  );
+      harness.run([=]() {
+        arbitrary_nodes::run_churn_test<RegionType::Trace>(size, regions);
+      });
+    },
+    runs,
+    warmup_runs);
 
   trace_benchmark.run_benchmark(
     [&, size, regions]() {

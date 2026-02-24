@@ -53,6 +53,7 @@ foreach(TEST_MODE "sys" "con")
         RUNTIME_OUTPUT_DIRECTORY ${BENCHMARK_OUTPUT_DIR}
         PREFIX ""
         )
+        target_include_directories(${TESTNAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/benchmarker)
     else()
         add_executable(${TESTNAME} ${SRC})
     endif()
