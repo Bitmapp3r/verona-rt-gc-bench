@@ -29,13 +29,12 @@ int main(int argc, char** argv)
   size_t runs = 10;
   size_t warmup_runs = 10;
   trace_benchmark.run_benchmark([]() { gol::run_test(); }, runs, warmup_runs);
-  trace_benchmark.print_summary("Game of Life - Trace Region");
+  trace_benchmark.print_summary("gol-trace");
 
   std::cout << "\nRunning with rc region" << std::endl;
   GCBenchmark rc_benchmark;
   rc_benchmark.run_benchmark([]() { gol_rc::run_test(); }, runs, warmup_runs);
-  rc_benchmark.print_summary("Game of Life - RC Region");
-
+  rc_benchmark.print_summary("gol-rc");
   return 0;
 }
 

@@ -19,7 +19,7 @@ int main(int argc, char** argv)
   if (log)
     Logging::enable_logging();
 
-  size_t runs = 3;
+  size_t runs = 10;
   size_t warmup_runs = 10;
   size_t seed =
     opt.is<size_t>("--seed", 42); // Default 0 = random seed each run
@@ -30,7 +30,7 @@ int main(int argc, char** argv)
     [seed]() { reproduction::run_test<RegionType::Trace>(101, 50, 10, seed); },
     runs,
     warmup_runs);
-  trace_benchmark.print_summary("Reproduction - Trace Region");
+  trace_benchmark.print_summary("reproduction-trace");
 
   std::cout << "\nRunning with rc region" << std::endl;
   GCBenchmark rc_benchmark;
@@ -38,7 +38,7 @@ int main(int argc, char** argv)
     [seed]() { reproduction::run_test<RegionType::Rc>(101, 50, 10, seed); },
     runs,
     warmup_runs);
-  rc_benchmark.print_summary("Reproduction - RC Region");
+  rc_benchmark.print_summary("reproduction-rc");
 
   std::cout << "\nRunning with arena region" << std::endl;
   GCBenchmark arena_benchmark;
@@ -46,7 +46,7 @@ int main(int argc, char** argv)
     [seed]() { reproduction::run_test<RegionType::Arena>(101, 50, 10, seed); },
     runs,
     warmup_runs);
-  arena_benchmark.print_summary("Reproduction - Arena Region");
+  arena_benchmark.print_summary("reproduction-arena");
 
   return 0;
 }
