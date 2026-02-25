@@ -4,7 +4,6 @@
 
 #include <debug/harness.h>
 #include <test/opt.h>
-#include <util/gc_benchmark.h>
 
 int main(int argc, char** argv)
 {
@@ -25,28 +24,13 @@ int main(int argc, char** argv)
     opt.is<size_t>("--seed", 42); // Default 0 = random seed each run
 
   std::cout << "Running with trace region" << std::endl;
-  GCBenchmark trace_benchmark;
-  trace_benchmark.run_benchmark(
-    [seed]() { reproduction::run_test<RegionType::Trace>(101, 50, 10, seed); },
-    runs,
-    warmup_runs);
-  trace_benchmark.print_summary("reproduction-trace");
+  reproduction::run_test<RegionType::Trace>(101, 50, 10, seed);
 
   std::cout << "\nRunning with rc region" << std::endl;
-  GCBenchmark rc_benchmark;
-  rc_benchmark.run_benchmark(
-    [seed]() { reproduction::run_test<RegionType::Rc>(101, 50, 10, seed); },
-    runs,
-    warmup_runs);
-  rc_benchmark.print_summary("reproduction-rc");
+  reproduction::run_test<RegionType::Rc>(101, 50, 10, seed);
 
   std::cout << "\nRunning with arena region" << std::endl;
-  GCBenchmark arena_benchmark;
-  arena_benchmark.run_benchmark(
-    [seed]() { reproduction::run_test<RegionType::Arena>(101, 50, 10, seed); },
-    runs,
-    warmup_runs);
-  arena_benchmark.print_summary("reproduction-arena");
+  reproduction::run_test<RegionType::Arena>(101, 50, 10, seed);
 
   return 0;
 }

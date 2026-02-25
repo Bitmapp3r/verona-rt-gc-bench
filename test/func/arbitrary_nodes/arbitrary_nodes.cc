@@ -6,7 +6,6 @@
 
 #include <debug/harness.h>
 #include <test/opt.h>
-#include <util/gc_benchmark.h>
 
 using namespace verona::rt::api;
 
@@ -48,36 +47,11 @@ int main(int argc, char** argv)
 
   SystematicTestHarness harness(argc, argv);
 
-  GCBenchmark trace_benchmark;
-  GCBenchmark arena_benchmark;
-  std::cout << "Running Churn" << std::endl;
-  trace_benchmark.run_benchmark(
-    [&, size, regions]() {
-      harness.run([=]() {
-        arbitrary_nodes::run_churn_test<RegionType::Trace>(size, regions);
-      });
-    },
-    runs,
-    warmup_runs);
+  arbitrary_nodes::run_churn_test<RegionType::Trace>(size, regions);
 
-  trace_benchmark.run_benchmark(
-    [&, size, regions]() {
-      harness.run(
-        [&]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
-    },
-    2,
-    2);
+  arbitrary_nodes::run_test<RegionType::Trace>(size, regions);
 
-  arena_benchmark.run_benchmark(
-    [&, size, regions]() {
-      harness.run(
-        [&]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
-    },
-    2,
-    2);
-
-  arena_benchmark.print_summary("Arbitrary Nodes - Using Arena");
-  trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
+  arbitrary_nodes::run_test<RegionType::Arena>(size, regions);
 
   return 0;
 }

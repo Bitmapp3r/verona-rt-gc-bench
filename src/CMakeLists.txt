@@ -24,4 +24,4 @@ set(SNMALLOC_BUILD_TESTING OFF)
 FetchContent_MakeAvailable_ExcludeFromAll(snmalloc)
 
 add_subdirectory(rt)
-add_subdirectory(benchmarker)
+# add_subdirectory(benchmarker)
