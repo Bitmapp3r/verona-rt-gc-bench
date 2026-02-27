@@ -47,35 +47,31 @@ int main(int argc, char** argv)
   size_t warmup_runs = 1;
 
   SystematicTestHarness harness(argc, argv);
-
+  const char* test_name = __FILE__;
   GCBenchmark trace_benchmark;
+  GCBenchmark rc_benchmark;
   GCBenchmark arena_benchmark;
   std::cout << "Running Churn" << std::endl;
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
         [=]() {arbitrary_nodes::run_churn_test<RegionType::Trace>(size, regions); });
-    }, runs, warmup_runs
+    }, runs, warmup_runs, test_name
   );
 
-  trace_benchmark.run_benchmark(
+  rc_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
-        [&]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
+        [&]() { arbitrary_nodes::run_test<RegionType::Rc>(size, regions); });
     },
-    2,
-    2);
+    runs, warmup_runs, test_name);
 
   arena_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
         [&]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
     },
-    2,
-    2);
-
-  arena_benchmark.print_summary("Arbitrary Nodes - Using Arena");
-  trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
+    runs, warmup_runs, test_name);
 
   return 0;
 }

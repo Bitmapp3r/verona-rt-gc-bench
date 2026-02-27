@@ -1,6 +1,6 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-#include "workload_tree.h"
+#include "tree_transform.h"
 
 #include <debug/harness.h>
 #include <test/opt.h>
@@ -23,24 +23,22 @@ int main(int argc, char** argv)
 
   size_t runs = 10;
   size_t warmup_runs = 10;
+  const char* test_name = __FILE__;
 
   std::cout << "Running with trace region" << std::endl;
   GCBenchmark trace_benchmark;
   trace_benchmark.run_benchmark(
-    []() { workload_tree::run_test<RegionType::Trace>(); }, runs, warmup_runs);
-  trace_benchmark.print_summary("Tree Transformation - Trace Region");
+    []() { workload_tree::run_test<RegionType::Trace>(); }, runs, warmup_runs, test_name);
 
   std::cout << "\nRunning with rc region" << std::endl;
   GCBenchmark rc_benchmark;
   rc_benchmark.run_benchmark(
-    []() { workload_tree::run_test<RegionType::Rc>(); }, runs, warmup_runs);
-  rc_benchmark.print_summary("Tree Transformation - RC Region");
+    []() { workload_tree::run_test<RegionType::Rc>(); }, runs, warmup_runs, test_name);
 
   std::cout << "Running with arena region" << std::endl;
   GCBenchmark arena_benchmark;
   arena_benchmark.run_benchmark(
-    []() { workload_tree::run_test<RegionType::Arena>(); }, runs, warmup_runs);
-  arena_benchmark.print_summary("Tree Transformation - Arena Region");
+    []() { workload_tree::run_test<RegionType::Arena>(); }, runs, warmup_runs, test_name);
 
   return 0;
 }

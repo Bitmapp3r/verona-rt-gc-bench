@@ -184,8 +184,10 @@ def plot(all_results, output_path):
         fontsize=9,
         bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
     )
-
-    fig.suptitle("GC Benchmark Comparison", fontsize=14, fontweight="bold")
+    first_name = list(all_results.values())[0]["name"]
+    last_underscore = first_name.rfind("_")
+    base_test_name = first_name[:last_underscore] if last_underscore != -1 else first_name
+    fig.suptitle(f"GC Benchmark Comparison ({base_test_name})", fontsize=14, fontweight="bold")
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     print(f"Saved: {output_path}")
@@ -202,17 +204,20 @@ if __name__ == "__main__":
 
     # Argument parsing: python benchmark_visualizer.py --csv <csvfile> | [runs] [warmup_runs] <test_name> [args...]
     args = sys.argv[1:]
-    CSV_DIR = BUILD_DIR / "CSVs"
+    CSV_DIR = Path(__file__).parent.parent / "CSVs"
 
     # CSV mode: --csv must be the first argument
     if len(args) >= 2 and args[0] == '--csv':
         approx_name = args[1]
-        print(f"Checking directory for CSV files: {CSV_DIR}")
+        print(f"Checking directory for CSV files: {CSV_DIR} (full path: {CSV_DIR.resolve()})")
         csv_files = list(CSV_DIR.glob(f"*{approx_name}*.csv"))
+    
         if not csv_files:
             print(f"No CSV files found containing '{approx_name}' in {CSV_DIR}")
             sys.exit(1)
         # Only plot, skip all test running logic
+
+
     else:
         runs = "5"
         warmup_runs = "5"
@@ -274,7 +279,7 @@ if __name__ == "__main__":
 
         # Find all CSV files created in the CSVs directory
         # Search CSV_DIR for all CSV files containing the test name
-        print(f"Checking directory for CSV files: {CSV_DIR}")
+        print(f"Checking directory for CSV files: {CSV_DIR} (full path: {CSV_DIR.resolve()})")
         csv_files = list(CSV_DIR.glob(f"*{test_name}*.csv"))
         if not csv_files:
             print(f"No CSV files found for test '{test_name}' in {CSV_DIR}")

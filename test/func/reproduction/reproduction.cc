@@ -21,6 +21,7 @@ int main(int argc, char** argv)
 
   size_t runs = 10;
   size_t warmup_runs = 10;
+  const char* test_name = __FILE__;
   size_t seed =
     opt.is<size_t>("--seed", 42); // Default 0 = random seed each run
 
@@ -29,24 +30,24 @@ int main(int argc, char** argv)
   trace_benchmark.run_benchmark(
     [seed]() { reproduction::run_test<RegionType::Trace>(101, 50, 10, seed); },
     runs,
-    warmup_runs);
-  trace_benchmark.print_summary("reproduction-trace");
+    warmup_runs,
+    test_name);
 
   std::cout << "\nRunning with rc region" << std::endl;
   GCBenchmark rc_benchmark;
   rc_benchmark.run_benchmark(
     [seed]() { reproduction::run_test<RegionType::Rc>(101, 50, 10, seed); },
     runs,
-    warmup_runs);
-  rc_benchmark.print_summary("reproduction-rc");
+    warmup_runs,
+    test_name);
 
   std::cout << "\nRunning with arena region" << std::endl;
   GCBenchmark arena_benchmark;
   arena_benchmark.run_benchmark(
     [seed]() { reproduction::run_test<RegionType::Arena>(101, 50, 10, seed); },
     runs,
-    warmup_runs);
-  arena_benchmark.print_summary("reproduction-arena");
+    warmup_runs,
+    test_name);
 
   return 0;
 }

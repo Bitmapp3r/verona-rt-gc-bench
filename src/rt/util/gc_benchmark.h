@@ -164,7 +164,8 @@ namespace verona::rt::api
     void run_benchmark(
       std::function<void()> test_fn,
       size_t num_runs = 5,
-      size_t warmup_runs = 0);
+      size_t warmup_runs = 0,
+      const char* test_name = "Test");
 
     /**
      * Print summary statistics
@@ -263,7 +264,7 @@ namespace verona::rt::api
 
   // Inline implementations
   inline void GCBenchmark::run_benchmark(
-    std::function<void()> test_fn, size_t num_runs, size_t warmup_runs)
+    std::function<void()> test_fn, size_t num_runs, size_t warmup_runs, const char* test_name)
   {
     // Warmup phase
     if (warmup_runs > 0)
@@ -352,6 +353,9 @@ namespace verona::rt::api
                 << " | Peak: " << format_bytes(collector.get_peak_memory())
                 << " (" << collector.get_peak_objects() << " obj)\n";
     }
+    std::string test_name_str = test_name;
+    test_name_str.resize(test_name_str.size() - 3);
+    print_summary(test_name_str.c_str());
   }
 
   inline void GCBenchmark::print_summary(const char* test_name) const
@@ -479,9 +483,11 @@ namespace verona::rt::api
   inline void GCBenchmark::write_csv(const char* filename) const
   {
     // Ensure CSVs directory exists (platform-independent)
-    std::string dir = "CSVs";
+    // Always use repo root for CSVs directory, 3 parents up from this file
+    std::filesystem::path this_file = __FILE__;
+    std::filesystem::path repo_root = this_file.parent_path().parent_path().parent_path().parent_path();
+    std::string dir = (repo_root / "CSVs").string();
     std::filesystem::create_directory(dir);
-    // Only use the base filename to avoid nested paths
     std::string base_filename = std::filesystem::path(filename).filename().string();
     std::string fullpath = dir + "/" + base_filename;
     std::ofstream file(fullpath);

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 #include "pointer_churn.h"
-
+#include <util/gc_benchmark.h>
 #include <debug/harness.h>
 #include <test/opt.h>
 
@@ -37,7 +37,19 @@ int main(int argc, char** argv)
     Logging::enable_logging();
 
   // Run test with selected GC type and parameters
-  pointer_churn::run_test(gc_type, num_nodes, num_mutations, seed);
+  GCBenchmark arena_benchmark;
+  GCBenchmark trace_benchmark;
+  GCBenchmark rc_benchmark;
+  const char* test_name = __FILE__;
+  size_t runs = 10;
+  size_t warmup_runs = 10;
 
+  // Run test with selected GC type and parameters
+  trace_benchmark.run_benchmark(
+    [&, gc_type, num_nodes, num_mutations, seed]() { pointer_churn::run_test(gc_type, num_nodes, num_mutations, seed); }, runs, warmup_runs, test_name);
+  arena_benchmark.run_benchmark(
+    [&, gc_type, num_nodes, num_mutations, seed]() { pointer_churn::run_test("arena", num_nodes, num_mutations, seed); }, runs, warmup_runs, test_name);
+  rc_benchmark.run_benchmark(
+    [&, gc_type, num_nodes, num_mutations, seed]() { pointer_churn::run_test("rc", num_nodes, num_mutations, seed); }, runs, warmup_runs, test_name);
   return 0;
 }
