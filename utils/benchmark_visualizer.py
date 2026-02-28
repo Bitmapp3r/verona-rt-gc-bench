@@ -12,13 +12,14 @@ Examples:
   python benchmark_visualizer.py bag --sys
 """
 
+import math
 import os
 import subprocess
 import sys
 from pathlib import Path
-#CHANGE THE STUFF IN EXEPATH AND CON/SYS
+
+# CHANGE THE STUFF IN EXEPATH AND CON/SYS
 import matplotlib.pyplot as plt
-import math
 
 # Default test directory (relative to script location)
 if os.name == "nt":
@@ -34,6 +35,7 @@ else:
 
 
 # Helper to get test library extension for platform
+
 
 def parse_csv(filepath):
     """Parse a benchmark CSV file."""
@@ -65,11 +67,12 @@ def parse_csv(filepath):
                     )
     return results
 
+
 def plot_bp(ax, data, labels, box_colors, xlabel, title):
     bp = ax.boxplot(data, patch_artist=True, vert=False)
-    for patch, color in zip(bp['boxes'], box_colors):
+    for patch, color in zip(bp["boxes"], box_colors):
         patch.set_facecolor(color)
-        patch.set_edgecolor('black')
+        patch.set_edgecolor("black")
     ax.set_yticks(range(1, len(labels) + 1))
     ax.set_yticklabels(labels)
     ax.set_ylabel("Region Type")
@@ -82,8 +85,8 @@ def plot_bp(ax, data, labels, box_colors, xlabel, title):
     right_lim = max_val * 1.9
     ax.set_xlim(left=left_lim, right=right_lim)
 
+
 def plot(all_results, output_path):
-    
     """Generate a 2x3 plot comparing all region types."""
     if not all_results:
         print("No data to plot")
@@ -103,15 +106,29 @@ def plot(all_results, output_path):
     x = range(len(runs))
 
     region_color_map = {"trace": colors[0], "arena": colors[1], "rc": colors[2]}
-    avg_gc_us_data = [[(r[1] / r[2]) / 1e3 for r in results["runs"]] for results in all_results.values()]
-    max_gc_us_data = [[r[3] / 1e3 for r in results["runs"]] for results in all_results.values()]
-    avg_mem_kb_data = [[r[4] / 1024 for r in results["runs"]] for results in all_results.values()]
-    max_mem_kb_data = [[r[5] / 1024 for r in results["runs"]] for results in all_results.values()]
+    avg_gc_us_data = [
+        [(r[1] / r[2]) / 1e3 for r in results["runs"]]
+        for results in all_results.values()
+    ]
+    max_gc_us_data = [
+        [r[3] / 1e3 for r in results["runs"]] for results in all_results.values()
+    ]
+    avg_mem_kb_data = [
+        [r[4] / 1024 for r in results["runs"]] for results in all_results.values()
+    ]
+    max_mem_kb_data = [
+        [r[5] / 1024 for r in results["runs"]] for results in all_results.values()
+    ]
     labels = [name for name in all_results.keys()]
-    box_colors = [region_color_map.get(
-        "trace" if "trace" in name else ("arena" if "arena" in name else ("rc" if "rc" in name else None)),
-        colors[idx % len(colors)]
-    ) for idx, (name, results) in enumerate(all_results.items())]
+    box_colors = [
+        region_color_map.get(
+            "trace"
+            if "trace" in name
+            else ("arena" if "arena" in name else ("rc" if "rc" in name else None)),
+            colors[idx % len(colors)],
+        )
+        for idx, (name, results) in enumerate(all_results.items())
+    ]
     print(avg_gc_us_data)
     plot_bp(
         axes[0, 0],
@@ -119,7 +136,7 @@ def plot(all_results, output_path):
         labels,
         box_colors,
         "Avg GC Time (µs)",
-        "Avg GC Time by Region Type (Boxplot)"
+        "Avg GC Time by Region Type (Boxplot)",
     )
     plot_bp(
         axes[0, 1],
@@ -127,7 +144,7 @@ def plot(all_results, output_path):
         labels,
         box_colors,
         "Max GC Time (µs)",
-        "Max GC Time by Region Type (Boxplot)"
+        "Max GC Time by Region Type (Boxplot)",
     )
     plot_bp(
         axes[1, 0],
@@ -135,7 +152,7 @@ def plot(all_results, output_path):
         labels,
         box_colors,
         "Avg Memory (KB)",
-        "Avg Memory by Region Type (Boxplot)"
+        "Avg Memory by Region Type (Boxplot)",
     )
     plot_bp(
         axes[1, 1],
@@ -143,7 +160,7 @@ def plot(all_results, output_path):
         labels,
         box_colors,
         "Max Memory (KB)",
-        "Max Memory by Region Type (Boxplot)"
+        "Max Memory by Region Type (Boxplot)",
     )
 
     # Latency percentiles: P50 and P99 on x-axis, region types as bars
@@ -186,8 +203,12 @@ def plot(all_results, output_path):
     )
     first_name = list(all_results.values())[0]["name"]
     last_underscore = first_name.rfind("_")
-    base_test_name = first_name[:last_underscore] if last_underscore != -1 else first_name
-    fig.suptitle(f"GC Benchmark Comparison ({base_test_name})", fontsize=14, fontweight="bold")
+    base_test_name = (
+        first_name[:last_underscore] if last_underscore != -1 else first_name
+    )
+    fig.suptitle(
+        f"GC Benchmark Comparison ({base_test_name})", fontsize=14, fontweight="bold"
+    )
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
     print(f"Saved: {output_path}")
@@ -207,16 +228,17 @@ if __name__ == "__main__":
     CSV_DIR = Path(__file__).parent.parent / "CSVs"
 
     # CSV mode: --csv must be the first argument
-    if len(args) >= 2 and args[0] == '--csv':
+    if len(args) >= 2 and args[0] == "--csv":
         approx_name = args[1]
-        print(f"Checking directory for CSV files: {CSV_DIR} (full path: {CSV_DIR.resolve()})")
+        print(
+            f"Checking directory for CSV files: {CSV_DIR} (full path: {CSV_DIR.resolve()})"
+        )
         csv_files = list(CSV_DIR.glob(f"*{approx_name}*.csv"))
-    
+
         if not csv_files:
             print(f"No CSV files found containing '{approx_name}' in {CSV_DIR}")
             sys.exit(1)
         # Only plot, skip all test running logic
-
 
     else:
         runs = "5"
@@ -238,8 +260,12 @@ if __name__ == "__main__":
             test_name = args[0]
             extra_args = args[1:]
         else:
-            print("Usage: python benchmark_visualizer.py --csv <csvfile> | [runs] [warmup_runs] <test_name> [args...]" )
-            print("       python benchmark_visualizer.py [runs] [warmup_runs] <test_name> --sys [args...]" )
+            print(
+                "Usage: python benchmark_visualizer.py --csv <csvfile> | [runs] [warmup_runs] <test_name> [args...]"
+            )
+            print(
+                "       python benchmark_visualizer.py [runs] [warmup_runs] <test_name> --sys [args...]"
+            )
             sys.exit(1)
         # Delete any existing CSV files first
         for old_csv in TEST_DIR.glob("*.csv"):
@@ -271,6 +297,7 @@ if __name__ == "__main__":
             warmup_runs,
             str(test_lib_path),
         ] + extra_args
+        print(extra_args)
         print(f"Running: {' '.join(cmd)}")
         result = subprocess.run(cmd, capture_output=True, text=True)
         print(result.stdout)
@@ -279,7 +306,9 @@ if __name__ == "__main__":
 
         # Find all CSV files created in the CSVs directory
         # Search CSV_DIR for all CSV files containing the test name
-        print(f"Checking directory for CSV files: {CSV_DIR} (full path: {CSV_DIR.resolve()})")
+        print(
+            f"Checking directory for CSV files: {CSV_DIR} (full path: {CSV_DIR.resolve()})"
+        )
         csv_files = list(CSV_DIR.glob(f"*{test_name}*.csv"))
         if not csv_files:
             print(f"No CSV files found for test '{test_name}' in {CSV_DIR}")

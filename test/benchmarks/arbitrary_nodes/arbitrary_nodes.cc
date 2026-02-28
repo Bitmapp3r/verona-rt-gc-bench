@@ -80,26 +80,30 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
 
-  // Default values
   int size = 1010;
   int regions = 100;
   bool enable_log = true;
 
-  // Parse command line arguments
-  if (argc >= 3)
+  try
   {
-    size = std::atoi(argv[1]);
-    regions = std::atoi(argv[2]);
-  }
+    if (argc > 1)
+      size = std::stoi(argv[1]);
 
-  if (argc >= 4)
-  {
-    std::string log_arg = argv[3];
-    if (log_arg == "log")
+    if (argc > 2)
+      regions = std::stoi(argv[2]);
+
+    if (argc > 3)
     {
-      enable_log = true;
+      std::string log_arg = argv[3];
+      enable_log = (log_arg == "log");
     }
   }
+  catch (const std::exception& e)
+  {
+    std::cerr << "Invalid command line argument: " << e.what() << std::endl;
+    return 1;
+  }
+
   arbitrary_nodes::run_test<RegionType::Trace>(size, regions);
   return 0;
 }

@@ -85,7 +85,7 @@ namespace arbitrary_nodes
   std::vector<size_t> random_regions(size_t regions, size_t size)
   {
     if (regions > size)
-      throw std::invalid_argument("regions must be <= size");
+      throw std::invalid_argument("regions must be <= size, received " + std::to_string(regions) + " and " + std::to_string(size));
 
     std::random_device rd;
     std::mt19937 gen(rd());

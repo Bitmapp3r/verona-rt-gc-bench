@@ -1,6 +1,6 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-#include "arbitrary_nodes.h"
+#include "partially_connected.h"
 
 #include "debug/logging.h"
 
@@ -56,14 +56,14 @@ int main(int argc, char** argv)
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
-        [=]() {arbitrary_nodes::run_churn_test<RegionType::Trace>(size, regions); });
+        [=]() {partially_connected::run_churn_test<RegionType::Trace>(size, regions); });
     }, runs, warmup_runs
   );
 
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
-        [&]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
+        [&]() { partially_connected::run_test<RegionType::Trace>(size, regions); });
     },
     2,
     2);
@@ -71,7 +71,7 @@ int main(int argc, char** argv)
   arena_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
-        [&]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
+        [&]() { partially_connected::run_test<RegionType::Arena>(size, regions); });
     },
     2,
     2);
@@ -112,6 +112,6 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
       enable_log = true;
     }
   }
-  arbitrary_nodes::run_test<RegionType::Trace>(size, regions);
+  partially_connected::run_test<RegionType::Trace>(size, regions);
   return 0;
 }

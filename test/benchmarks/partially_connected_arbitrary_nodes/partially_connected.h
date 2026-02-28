@@ -18,7 +18,7 @@
 
 using namespace verona::cpp;
 
-namespace arbitrary_nodes
+namespace partially_connected
 {
 
   template<typename T>
@@ -202,7 +202,7 @@ namespace arbitrary_nodes
 
         if (partial)
           partially_connect(all_nodes);
-        else 
+        else
           fully_connect(all_nodes);
       }
 
@@ -225,7 +225,7 @@ namespace arbitrary_nodes
     return false;
   }
 
-  bool addArc(Node* src, Node* dst) 
+  bool addArc(Node* src, Node* dst)
   {
     if (!src || !dst)
       return false;
@@ -263,7 +263,7 @@ namespace arbitrary_nodes
   }
 
 
-  void churn_region(GraphRegion* graphRegion) 
+  void churn_region(GraphRegion* graphRegion)
   {
     UsingRegion ur(graphRegion);
     std::cout << "Churning Region" << std::endl;
@@ -289,7 +289,7 @@ namespace arbitrary_nodes
         new_nodes++;
       }
 
-           
+
       // link the working set together.
       if (workingSet.size() > 2) {
         for (int i = 0; i < WORKING_SET_SIZE; i++) {
@@ -323,7 +323,7 @@ namespace arbitrary_nodes
   }
 
   void multi_churn(cown_ptr<GraphRegionCown>& graph, int churnsPerCollection, int churns) {
-    when (graph) 
+    when (graph)
       << [=](auto c) {
         churn_region(c->graphRegion);
         for (int i = 0; i < 10; i++) {
@@ -332,25 +332,25 @@ namespace arbitrary_nodes
             when (graph) << [](auto c) {
               std::cout << "RUNNING GARBAGE COLLECTION\n";
               UsingRegion rr(c->graphRegion);
-              region_collect();};       
+              region_collect();};
           }
         }
       };
   }
 
-  template<RegionType rt> 
-  void run_churn_test(int size, int regions) 
+  template<RegionType rt>
+  void run_churn_test(int size, int regions)
   {
     {
-      std::vector<cown_ptr<GraphRegionCown>> graphRegions = 
+      std::vector<cown_ptr<GraphRegionCown>> graphRegions =
         createGraph<rt>(size, regions, true);
-      
+
       for (cown_ptr<GraphRegionCown>& graphRegionCown : graphRegions) {
         multi_churn(graphRegionCown, 4, 20);
       }
     }
   }
-} // namespace arbitrary_nodes
+} // namespace partially_connected
 
 
 
