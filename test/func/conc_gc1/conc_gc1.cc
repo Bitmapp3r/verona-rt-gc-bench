@@ -12,7 +12,7 @@ struct Node : public V<Node> {
     Node* next;
     ~Node() {Logging::cout() << "node " << id << " died\n";}
     void trace(ObjectStack& st) {
-        if (!next)
+        if (next)
             st.push(next);
     }
 };
