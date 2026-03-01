@@ -3,6 +3,7 @@
 #pragma once
 
 #include <atomic>
+#include <functional>
 
 #include "../object/object.h"
 #include "externalreference.h"
@@ -85,5 +86,21 @@ namespace verona::rt
       Object::dealloc();
     }
   };
+
+  // Callback for region GC/release operations
+  inline thread_local std::function<void(uint64_t, RegionType, size_t, size_t)>* 
+    gc_callback = nullptr;
+
+  inline void set_gc_callback(
+    std::function<void(uint64_t, RegionType, size_t, size_t)>* callback)
+  {
+    gc_callback = callback;
+  }
+
+  inline std::function<void(uint64_t, RegionType, size_t, size_t)>*
+  get_gc_callback()
+  {
+    return gc_callback;
+  }
 
 } // namespace verona::rt
