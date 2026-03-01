@@ -229,14 +229,15 @@ if __name__ == "__main__":
 
     # CSV mode: --csv must be the first argument
     if len(args) >= 2 and args[0] == "--csv":
-        approx_name = args[1]
-        print(
-            f"Checking directory for CSV files: {CSV_DIR} (full path: {CSV_DIR.resolve()})"
-        )
-        csv_files = list(CSV_DIR.glob(f"*{approx_name}*.csv"))
-
+        folder_name = args[1]
+        target_dir = CSV_DIR / folder_name
+        print(f"Checking directory for CSV files: {target_dir} (full path: {target_dir.resolve()})")
+        if not target_dir.exists() or not target_dir.is_dir():
+            print(f"Error: Directory not found: {target_dir}")
+            sys.exit(1)
+        csv_files = list(target_dir.glob("*.csv"))
         if not csv_files:
-            print(f"No CSV files found containing '{approx_name}' in {CSV_DIR}")
+            print(f"No CSV files found in directory '{target_dir}'")
             sys.exit(1)
         # Only plot, skip all test running logic
 

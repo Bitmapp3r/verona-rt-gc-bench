@@ -125,14 +125,14 @@ int main(int argc, char** argv)
     if (set_callback) set_callback(nullptr);
   };
   
-  benchmark.run_benchmark(test_wrapper, runs, warmup_runs);
+  benchmark.run_benchmark(test_wrapper, runs, warmup_runs, lib_path);
 #else
   benchmark.run_benchmark(
     [&]() { harness.run([&]() { entry(new_argc, new_argv); }); },
     runs,
-    warmup_runs);
+    warmup_runs,
+    lib_path);
 #endif
-  benchmark.print_summary(lib_path);
   LIB_CLOSE(handle);
   return 0;
 }

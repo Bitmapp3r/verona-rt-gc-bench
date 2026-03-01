@@ -43,6 +43,7 @@ int main(int argc, char** argv)
 
   size_t runs = 10;
   size_t warmup_runs = 10;
+  const char* test_name = __FILE__;
 
   SystematicTestHarness harness(argc, argv);
 
@@ -55,8 +56,8 @@ int main(int argc, char** argv)
         [=]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
     },
     runs,
-    warmup_runs);
-  trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
+    warmup_runs,
+    test_name);
 
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
@@ -64,8 +65,8 @@ int main(int argc, char** argv)
         [=]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
     },
     runs,
-    warmup_runs);
-  trace_benchmark.print_summary("Arbitrary Nodes - Using Arena");
+    warmup_runs,
+    test_name);
 
   return 0;
 }

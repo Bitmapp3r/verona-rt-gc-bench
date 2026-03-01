@@ -29,6 +29,8 @@ int main(int argc, char** argv)
   GCBenchmark trace_benchmark;
   size_t runs = 10;
   size_t warmup_runs = 10;
+  std::cout << "FFFFFFFFFFFFFFFFFFFFFFFFF" << std::endl;
+  std::cout << test_name << std::endl;
   trace_benchmark.run_benchmark([]() { gol::run_test(); }, runs, warmup_runs, test_name);
 
   std::cout << "\nRunning with rc region" << std::endl;

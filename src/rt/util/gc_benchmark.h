@@ -353,9 +353,12 @@ namespace verona::rt::api
                 << " | Peak: " << format_bytes(collector.get_peak_memory())
                 << " (" << collector.get_peak_objects() << " obj)\n";
     }
-    std::string test_name_str = test_name;
-    test_name_str.resize(test_name_str.size() - 3);
-    print_summary(test_name_str.c_str());
+    std::string path = test_name;
+    size_t pos = path.find_last_of("/\\");
+    if (pos != std::string::npos)
+      path = path.substr(pos + 1);
+    path.resize(path.size() - 4);
+    print_summary(path.c_str());
   }
 
   inline void GCBenchmark::print_summary(const char* test_name) const
@@ -365,7 +368,6 @@ namespace verona::rt::api
       std::cout << "\nNo benchmark results to display.\n";
       return;
     }
-
     write_csv(test_name);
 
     // Auto-write CSV file (convert test name to filename: spaces->underscores,
@@ -463,8 +465,6 @@ namespace verona::rt::api
 
   inline void GCBenchmark::write_csv(const char* filename) const
   {
-    std::cout << "111111111111111111111111111111" << std::endl;
-    std::cout << filename << std::endl;
     std::string filename_str = filename;
     std::string csv_filename = filename;
     for (char& c : csv_filename)
@@ -491,8 +491,9 @@ namespace verona::rt::api
     // Ensure CSVs directory exists (platform-independent)
     // Always use repo root for CSVs directory, 3 parents up from this file
     std::filesystem::path this_file = __FILE__;
+
     std::filesystem::path repo_root = this_file.parent_path().parent_path().parent_path().parent_path();
-    std::string dir = (repo_root / "CSVs").string();
+    std::string dir = (repo_root / "CSVs" / filename_str).string();
     std::filesystem::create_directory(dir);
     csv_filename += region_type_str + ".csv";
     std::string base_filename = std::filesystem::path(csv_filename).filename().string();
