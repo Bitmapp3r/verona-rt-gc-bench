@@ -124,13 +124,15 @@ namespace verona::rt
     {
       assert(o->debug_is_iso() || o->is_opened());
       ObjectStack collect;
+      Logging::cout() << "release on object: " << o << "\n";
       Region::release_internal(o, collect);
 
       while (!collect.empty())
-      {
+      { 
+        Logging::cout() << "hasdkfasdf\n";
         o = collect.pop();
         assert(o->debug_is_iso());
-        Region::release_internal(o, collect);
+        Region::logical_release_internal(o, collect);
       }
     }
 
@@ -147,6 +149,19 @@ namespace verona::rt
     }
 
   private:
+
+    static void logical_release_internal(Object* o, ObjectStack& collect) 
+    {
+      Logging::cout() << "logical release internal on object; " <<  o << "\n";
+      auto r = o->get_region();
+      r->isAlive.store(false, std::memory_order_acq_rel);
+
+      if (r->task_dec()) {
+        Logging::cout() << "physically releasing sub region\n";
+        release_internal(o, collect);
+      } 
+    }
+
     /**
      * Internal method for releasing and deallocating regions, that takes
      * a worklist (represented by `f` and `collect`).
@@ -155,6 +170,7 @@ namespace verona::rt
      **/
     static void release_internal(Object* o, ObjectStack& collect)
     {
+      Logging::cout() << "release internal on object: " << o << "\n"; 
       auto r = o->get_region();
       switch (Region::get_type(r))
       {

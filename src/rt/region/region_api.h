@@ -7,6 +7,7 @@
 
 #include <debug/logging.h>
 #include <functional>
+#include <atomic>
 #include <test/measuretime.h>
 
 namespace verona::rt::api
@@ -83,6 +84,48 @@ namespace verona::rt::api
 
   using namespace internal;
 
+  /*
+  regions can be in one 3 states: Open. Closed, Collecting
+  4 state transitions:
+  normal behaviours:
+  Closed -> Open
+  Open -> Closed
+
+
+  GCing:
+  Closed -> Collecting
+  Collecting -> Closed
+  
+  when closing a region, we schedule a gc task
+  in future, we'll only schedule when the region size goes above a threshold. 
+  and we'll only haev 1 gc task in flight for each region. 
+
+  race conditions:
+  open region <---> gc task
+  
+  open region is used by both the normal behaviours and gc task.
+  same with close region
+
+
+
+  issue: 
+  race condition between region_release and gc task
+  TOCTTOA bug
+  basically we don't wanna gc if the region is dead
+  in gc task:
+  if region not dead:
+    open region for garbage collection
+  
+  ^^^ between those 2 lines, the region may be freed. the fix? reference count the region and the final 
+  user of the region will delete it. this may cause a redundant garbage collection call. but thats the best we can do.
+
+  we changed code in region_api, 
+
+  we spawn the behaviour using behavior api
+
+  for now open region may fail if we're in the wrong state. may change it to either spin loop or fail but reschedule.
+  for opening a region for work we can't really reschedule...have to spin.
+  */
   /**
    * Check if pointer points to a new region.
    */
@@ -95,13 +138,67 @@ namespace verona::rt::api
     return RegionContext::get_entry_point() != o;
   }
 
+  template<typename T = Object>
+  void region_physical_release(Object* r);
+
+  template<typename T = Object>
+  inline void region_release(Object* r);
+
   /**
    * Open supplied region, and return entry point.
+   * Opening a region may fail if opening for collecting and already collecting
    */
-  inline void open_region(Object* r)
+  inline bool open_region(Object* r, bool forWork = true)
   {
     assert(r->debug_is_iso());
     auto md = r->get_region();
+    // TODO refactor the VVVV code into functions that represent state transitions.
+    // forWork or for GC
+    if (forWork) {
+      Logging::cout() << "opening region for work\n";
+      // Closed -> Open
+      auto closed = RegionBase::Closed;
+      md->state.compare_exchange_strong(closed, RegionBase::Open, std::memory_order_acquire);
+      //assert (closed != RegionBase::Open); // this would mean opening an already open region
+      if (closed == RegionBase::Collecting || closed == RegionBase::Open) {
+        auto expected = RegionBase::Closed;
+        while (!md->state.compare_exchange_weak(expected, RegionBase::Open, std::memory_order_acq_rel)) {
+          if (expected == RegionBase::Collecting) {
+            // Still GCing.
+            snmalloc::Aal::pause();
+            expected = RegionBase::Closed;
+          }
+          else if (expected == RegionBase::Open) {
+            // a different behaviour got scheduled before us. wait for them...
+            snmalloc::Aal::pause();
+            expected = RegionBase::Closed;
+          } else {
+
+          }
+        }
+        // we are in Open state
+      }
+    } else {
+      // opening for GC
+      // Closed -> Collecting
+      auto closed = RegionBase::Closed;
+      bool success = md->state.compare_exchange_strong(closed, RegionBase::Collecting, std::memory_order_acq_rel);
+      if (closed == RegionBase::Collecting) {
+        Logging::cout() << "someone is already collecting\n";
+        // TODO fail to open region and terminate the work
+        return false;
+      }
+      if (closed == RegionBase::Open) {
+        Logging::cout() << "someone started working in the region before we could GC\n";
+        // wait for them or fail and reschedule? 
+        // ... for now we can just fail to open the region and let that task reschedule GC
+        // but really we should probably continue to try and do gc here. and make sure we don't reschedule gc.
+        // so scheduling gc should change state in the region that says we shouldn't schedule soon.
+        return false;
+      }
+
+    }
+
     RegionContext::push(r, md);
     switch (Region::get_type(md))
     {
@@ -114,14 +211,90 @@ namespace verona::rt::api
       default:
         abort();
     }
+    return true;
   }
+
+  void close_region(bool);
+
+  class UsingRegion // GCing requires opening the region.
+  {
+    bool forWork;
+  public:
+    bool isOpen = false;
+    UsingRegion(Object* r, bool forWork = true) : forWork(forWork)
+    {
+      isOpen = open_region(r, forWork);
+    }
+
+    ~UsingRegion()
+    {
+      // TODO: Check if we are in the same region as the one we opened. <--- not my TODO.
+      if (isOpen) {
+        close_region(forWork);
+      }
+    }
+  };
+  void region_collect();
+
+  inline void schedule_gc(Object* entry) {
+    auto gc_task = [entry]() {
+      
+      RegionBase* reg = entry->get_region();
+      Logging::cout() << "Running GC Task! on "<< reg << "and entry object:" << entry <<"\n";
+      
+
+      // I'm pretty sure this memory ordering is stronger than necessary.
+      if (reg->isAlive.load(std::memory_order_acq_rel)) {
+        UsingRegion rr(entry, false);
+        if (!rr.isOpen) {
+          Logging::cout() << "GC Task aborted. someone else opened region\n";
+          return;
+        }
+        region_collect();
+        Logging::cout() << "GC Task finished\n";
+      }
+
+      // if region_release has been called, isAlive is true and this call will
+      // physically free the region (if there's no other scheduled GC task).
+      if (reg->task_dec()) {
+        //region_release(entry);
+        region_physical_release(entry);
+      }        
+    };
+
+    auto reg = entry->get_region();
+    if (!reg->isAlive.load()) {
+      return;
+    }
+
+    auto* gc_behaviour = Behaviour::make(0, std::move(gc_task));
+    Work* gc_work = gc_behaviour->as_work();
+    Logging::cout() << "Scheduling GC Task\n";
+
+    entry->get_region()->task_inc();
+    Scheduler::schedule(gc_work);
+  }
+
 
   /**
    * Close current region
    */
-  inline void close_region()
+  inline void close_region(bool forWork = true)
   {
     auto md = RegionContext::get_region();
+    Object* entry = RegionContext::get_entry_point();
+
+    if (forWork) {
+      // Open -> Closed
+      auto open = RegionBase::Open;
+      bool success = md->state.compare_exchange_strong(open, RegionBase::Closed, std::memory_order_release);
+      assert(success); // this region better not be closed or collecting
+    } else {
+      // Collecting -> Closed
+      auto collecting = RegionBase::Collecting;
+      bool success = md->state.compare_exchange_strong(collecting, RegionBase::Closed, std::memory_order_acq_rel);
+      assert(success); // better not be closed or open
+    }
     switch (Region::get_type(md))
     {
       case RegionType::Trace:
@@ -133,23 +306,18 @@ namespace verona::rt::api
       default:
         abort();
     }
+    // schedule GC
+    if (forWork) { // we schedule GC after doing a normal behaviour on the region
+      // this check stops us from scheduling GC after having done GC.
+      // and if we should GC (store some state in region)
+      
+      schedule_gc(entry);
+    }
     RegionContext::pop();
   }
 
-  class UsingRegion
-  {
-  public:
-    UsingRegion(Object* r)
-    {
-      open_region(r);
-    }
 
-    ~UsingRegion()
-    {
-      // TODO: Check if we are in the same region as the one we opened.
-      close_region();
-    }
-  };
+
 
   /**
    * Freeze region
@@ -382,9 +550,10 @@ namespace verona::rt::api
     }
   }
 
-  template<typename T = Object>
-  inline void region_release(Object* r)
-  {
+
+  template<typename T> 
+  inline void region_physical_release(Object* r) {
+    Logging::cout() << "reached region_physical_release on object: " << r << "\n";
     RegionType type = Region::get_type(r->get_region());
 
     // Capture memory before release for metrics
@@ -431,6 +600,20 @@ namespace verona::rt::api
       Logging::cout() << "Region release time: " << duration_ns << " ns"
                       << Logging::endl;
     }
+  }
+  
+
+  template<typename T>
+  inline void region_release(Object* r)
+  {
+    Logging::cout() << "reached region_release on object " << r << "\n";
+    RegionBase* reg = r->get_region();
+    reg->isAlive.store(false, std::memory_order_release);
+
+    if (reg->task_dec()) {
+      //Logging::cout() << "physically releasing region\n";
+      region_physical_release(r);
+    } 
   }
 
   /**
