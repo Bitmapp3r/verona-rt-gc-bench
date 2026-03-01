@@ -42,37 +42,73 @@ foreach(TEST_MODE "sys" "con")
     unset(SRC)
     aux_source_directory(${TESTDIR}/${TEST_CATEGORY}/${TEST} SRC)
     set(TESTNAME "${TEST_CATEGORY}-${TEST_MODE}-${TEST}")
+    
+    # Keep track of all targets created for this test
+    unset(TEST_TARGETS)
+    
     if (${TEST_CATEGORY} STREQUAL "benchmarks")
-        set(BENCHMARK_OUTPUT_DIR "${CMAKE_BINARY_DIR}/test/benchmarks/${TEST_MODE}")
-        file(MAKE_DIRECTORY ${BENCHMARK_OUTPUT_DIR})
-        add_library(${TESTNAME} SHARED ${SRC})
-        set_target_properties(${TESTNAME}
-        PROPERTIES
-        POSITION_INDEPENDENT_CODE ON
-        LIBRARY_OUTPUT_DIRECTORY ${BENCHMARK_OUTPUT_DIR}
-        RUNTIME_OUTPUT_DIRECTORY ${BENCHMARK_OUTPUT_DIR}
-        PREFIX ""
-        )
+    # Create a base directory for this test
+    set(TEST_BASE_DIR "${CMAKE_BINARY_DIR}/test/benchmarks/${TEST}")
+    
+    # Create library subdirectory
+    set(LIB_OUTPUT_DIR "${TEST_BASE_DIR}/${TEST_MODE}-library")
+    file(MAKE_DIRECTORY ${LIB_OUTPUT_DIR})
+    
+    # Create library
+    add_library(${TESTNAME}-lib SHARED ${SRC})
+    set_target_properties(${TESTNAME}-lib
+    PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    LIBRARY_OUTPUT_DIRECTORY ${LIB_OUTPUT_DIR}
+    RUNTIME_OUTPUT_DIRECTORY ${LIB_OUTPUT_DIR}
+    PREFIX ""
+    OUTPUT_NAME ${TESTNAME}
+    )
+    list(APPEND TEST_TARGETS ${TESTNAME}-lib)
+    
+    # Create executable subdirectory
+    set(EXE_OUTPUT_DIR "${TEST_BASE_DIR}/${TEST_MODE}-executable")
+    file(MAKE_DIRECTORY ${EXE_OUTPUT_DIR})
+    
+    # Create executable
+    add_executable(${TESTNAME}-bin ${SRC})
+    set_target_properties(${TESTNAME}-bin
+    PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${EXE_OUTPUT_DIR}
+    OUTPUT_NAME ${TESTNAME}
+    )
+    list(APPEND TEST_TARGETS ${TESTNAME}-bin)
     else()
         add_executable(${TESTNAME} ${SRC})
+        list(APPEND TEST_TARGETS ${TESTNAME})
     endif()
 
-    target_include_directories(${TESTNAME} PRIVATE ${TESTDIR}/${TEST_CATEGORY}/${TEST} ${TESTDIR})
-    add_dependencies(rt_tests ${TESTNAME})
-    target_link_libraries(${TESTNAME} verona_rt)
+    # Apply common properties to all targets
+    foreach(target ${TEST_TARGETS})
+        target_include_directories(${target} PRIVATE ${TESTDIR}/${TEST_CATEGORY}/${TEST} ${TESTDIR})
+        add_dependencies(rt_tests ${target})
+        target_link_libraries(${target} verona_rt)
+    endforeach()
+    
     if (${TEST_MODE} STREQUAL "sys")
-      target_compile_definitions(${TESTNAME} PRIVATE USE_SYSTEMATIC_TESTING)
+      foreach(target ${TEST_TARGETS})
+        target_compile_definitions(${target} PRIVATE USE_SYSTEMATIC_TESTING)
+      endforeach()
     else()
-      add_test("runtime/${TESTNAME}" ${TESTRUNNER} ${TESTNAME})
-      if (VERONA_CI_BUILD)
-        target_compile_definitions(${TESTNAME} PRIVATE USE_FLIGHT_RECORDER)
-      endif ()
+      foreach(target ${TEST_TARGETS})
+        add_test("runtime/${target}" ${TESTRUNNER} ${target})
+        if (VERONA_CI_BUILD)
+          target_compile_definitions(${target} PRIVATE USE_FLIGHT_RECORDER)
+        endif ()
+      endforeach()
     endif ()
+    
     if (${TEST} STREQUAL "runtimepause")
-      # This example uses external non-determinism. So add FLIGHT_RECORDER for CI crashes
-      if (VERONA_CI_BUILD)
-        target_compile_definitions(${TESTNAME} PRIVATE USE_FLIGHT_RECORDER)
-      endif ()
+      foreach(target ${TEST_TARGETS})
+        if (VERONA_CI_BUILD)
+          target_compile_definitions(${target} PRIVATE USE_FLIGHT_RECORDER)
+        endif ()
+      endforeach()
     endif ()
   endforeach()
 endforeach()
