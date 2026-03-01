@@ -276,7 +276,10 @@ if __name__ == "__main__":
         test_libs = list(TEST_DIR.glob(f"benchmarks-con-*{lib_ext}"))
 
         # Construct the test library filename
-        test_lib_name = f"benchmarks-con-{test_name}{lib_ext}"
+        if "dll" in test_name:  
+            test_lib_name = f"{test_name}"
+        else:
+            test_lib_name = f"{test_name}{lib_ext}"
         test_lib_path = TEST_DIR / test_lib_name
         if not test_lib_path.exists():
             print(f"Error: Test library not found: {test_lib_path}")
@@ -305,19 +308,16 @@ if __name__ == "__main__":
         if result.stderr:
             print(result.stderr)
 
-        # Find all CSV files created in the CSVs directory
-        # Search CSV_DIR for all CSV files containing the test name
-        print(
-            f"Checking directory for CSV files: {CSV_DIR} (full path: {CSV_DIR.resolve()})"
-        )
-        csv_files = list(CSV_DIR.glob(f"*{test_name}*.csv"))
-        if not csv_files:
-            print(f"No CSV files found for test '{test_name}' in {CSV_DIR}")
+        # Find all CSV files created in the CSVs directory under a subdirectory named after the test
+        csv_folder_name = test_lib_name.replace(lib_ext, "")
+        target_dir = CSV_DIR / csv_folder_name
+        print(f"Checking directory for CSV files: {target_dir} (full path: {target_dir.resolve()})")
+        if not target_dir.exists() or not target_dir.is_dir():
+            print(f"Error: Directory not found: {target_dir}")
             sys.exit(1)
+        csv_files = list(target_dir.glob("*.csv"))
         if not csv_files:
-            print(
-                "No CSV files found. Make sure the test uses GCBenchmark::print_summary()"
-            )
+            print(f"No CSV files found in directory '{target_dir}'")
             print("Available test libraries:")
             for tlib in test_libs:
                 print(f"  {tlib.name}")
