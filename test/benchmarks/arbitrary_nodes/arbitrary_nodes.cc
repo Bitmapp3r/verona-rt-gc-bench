@@ -1,0 +1,110 @@
+// Copyright Microsoft and Project Verona Contributors.
+// SPDX-License-Identifier: MIT
+#include "arbitrary_nodes.h"
+
+#include "debug/logging.h"
+
+#include <debug/harness.h>
+#include <test/opt.h>
+#include <util/gc_benchmark.h>
+
+using namespace verona::rt::api;
+
+int main(int argc, char** argv)
+{
+  opt::Opt opt(argc, argv);
+
+  // Default values
+  int size = 1010;
+  int regions = 100;
+  bool enable_log = true;
+
+  // Parse command line arguments
+  if (argc >= 3)
+  {
+    size = std::atoi(argv[1]);
+    regions = std::atoi(argv[2]);
+  }
+
+  if (argc >= 4)
+  {
+    std::string log_arg = argv[3];
+    if (log_arg == "log")
+    {
+      enable_log = true;
+    }
+  }
+
+  // Enable logging if requested
+  if (enable_log)
+  {
+    Logging::enable_logging();
+  }
+
+  size_t runs = 10;
+  size_t warmup_runs = 10;
+  const char* test_name = __FILE__;
+
+  SystematicTestHarness harness(argc, argv);
+
+  std::cout << "\nRunning with arena region" << std::endl;
+  GCBenchmark trace_benchmark;
+
+  trace_benchmark.run_benchmark(
+    [&, size, regions]() {
+      harness.run(
+        [=]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
+    },
+    runs,
+    warmup_runs,
+    test_name);
+
+  trace_benchmark.run_benchmark(
+    [&, size, regions]() {
+      harness.run(
+        [=]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
+    },
+    runs,
+    warmup_runs,
+    test_name);
+
+  return 0;
+}
+
+#if defined(_WIN32) || defined(_WIN64)
+#  define EXPORT __declspec(dllexport)
+#else
+#  define EXPORT
+#endif
+
+extern "C" EXPORT int run_benchmark(int argc, char** argv)
+{
+  opt::Opt opt(argc, argv);
+
+  int size = 1010;
+  int regions = 100;
+  bool enable_log = true;
+
+  try
+  {
+    if (argc > 1)
+      size = std::stoi(argv[1]);
+
+    if (argc > 2)
+      regions = std::stoi(argv[2]);
+
+    if (argc > 3)
+    {
+      std::string log_arg = argv[3];
+      enable_log = (log_arg == "log");
+    }
+  }
+  catch (const std::exception& e)
+  {
+    std::cerr << "Invalid command line argument: " << e.what() << std::endl;
+    return 1;
+  }
+
+  arbitrary_nodes::run_test<RegionType::Trace>(size, regions);
+  return 0;
+}

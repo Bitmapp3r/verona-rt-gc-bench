@@ -20,8 +20,9 @@ int main(int argc, char** argv)
   if (log)
     Logging::enable_logging();
 
-  size_t runs = 3;
+  size_t runs = 10;
   size_t warmup_runs = 10;
+  const char* test_name = __FILE__;
   size_t seed =
     opt.is<size_t>("--seed", 42); // Default 0 = random seed each run
   
@@ -30,8 +31,8 @@ int main(int argc, char** argv)
   trace_benchmark.run_benchmark(
     [seed]() { reproduction::run_test<RegionType::Trace>(101, 20, 7, seed); },
     runs,
-    warmup_runs);
-  trace_benchmark.print_summary("Reproduction - Trace Region");
+    warmup_runs,
+    test_name);
 
   std::cout << "\nRunning with rc region" << std::endl;
   GCBenchmark rc_benchmark;

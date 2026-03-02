@@ -5,6 +5,7 @@
 #include "freeze.h"
 #include "region.h"
 
+#include "../cpp/behaviour.h"
 #include <debug/logging.h>
 #include <functional>
 #include <atomic>
@@ -73,31 +74,31 @@ namespace verona::rt::api
   GCing:
   Closed -> Collecting
   Collecting -> Closed
-  
+
   when closing a region, we schedule a gc task
-  in future, we'll only schedule when the region size goes above a threshold. 
-  and we'll only haev 1 gc task in flight for each region. 
+  in future, we'll only schedule when the region size goes above a threshold.
+  and we'll only haev 1 gc task in flight for each region.
 
   race conditions:
   open region <---> gc task
-  
+
   open region is used by both the normal behaviours and gc task.
   same with close region
 
 
 
-  issue: 
+  issue:
   race condition between region_release and gc task
   TOCTTOA bug
   basically we don't wanna gc if the region is dead
   in gc task:
   if region not dead:
     open region for garbage collection
-  
-  ^^^ between those 2 lines, the region may be freed. the fix? reference count the region and the final 
+
+  ^^^ between those 2 lines, the region may be freed. the fix? reference count the region and the final
   user of the region will delete it. this may cause a redundant garbage collection call. but thats the best we can do.
 
-  we changed code in region_api, 
+  we changed code in region_api,
 
   we spawn the behaviour using behavior api
 
@@ -168,7 +169,7 @@ namespace verona::rt::api
       }
       if (closed == RegionBase::Open) {
         Logging::cout() << "someone started working in the region before we could GC\n";
-        // wait for them or fail and reschedule? 
+        // wait for them or fail and reschedule?
         // ... for now we can just fail to open the region and let that task reschedule GC
         // but really we should probably continue to try and do gc here. and make sure we don't reschedule gc.
         // so scheduling gc should change state in the region that says we shouldn't schedule soon.
@@ -216,10 +217,10 @@ namespace verona::rt::api
 
   inline void schedule_gc(Object* entry) {
     auto gc_task = [entry]() {
-      
+
       RegionBase* reg = entry->get_region();
       Logging::cout() << "Running GC Task! on "<< reg << "and entry object:" << entry <<"\n";
-      
+
 
       // I'm pretty sure this memory ordering is stronger than necessary.
       if (reg->isAlive.load(std::memory_order_acq_rel)) {
@@ -237,7 +238,7 @@ namespace verona::rt::api
       if (reg->task_dec()) {
         //region_release(entry);
         region_physical_release(entry);
-      }        
+      }
     };
 
     auto reg = entry->get_region();
@@ -288,7 +289,7 @@ namespace verona::rt::api
     if (forWork) { // we schedule GC after doing a normal behaviour on the region
       // this check stops us from scheduling GC after having done GC.
       // and if we should GC (store some state in region)
-      
+
       schedule_gc(entry);
     }
     RegionContext::pop();
@@ -443,7 +444,7 @@ namespace verona::rt::api
   {
     RegionBase* r = RegionContext::get_region();
     Object* entry = RegionContext::get_entry_point();
-    
+
     with_region_stats(r, "Region collect", [&]() {
       switch (Region::get_type(r))
       {
@@ -461,14 +462,14 @@ namespace verona::rt::api
   }
 
 
-  template<typename T> 
+  template<typename T>
   inline void region_physical_release(Object* r) {
     Logging::cout() << "reached region_physical_release on object: " << r << "\n";
     with_region_stats(r->get_region(), "Region release", [&]() {
       Region::release(r);
     });
   }
-  
+
 
   template<typename T>
   inline void region_release(Object* r)
@@ -480,7 +481,7 @@ namespace verona::rt::api
     if (reg->task_dec()) {
       //Logging::cout() << "physically releasing region\n";
       region_physical_release(r);
-    } 
+    }
   }
 
   /**

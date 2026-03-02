@@ -24,17 +24,16 @@ int main(int argc, char** argv)
   if (log)
     Logging::enable_logging();
 
+  const char* test_name = __FILE__;
   std::cout << "Running with trace region" << std::endl;
   GCBenchmark trace_benchmark;
   size_t runs = 10;
   size_t warmup_runs = 10;
-  trace_benchmark.run_benchmark([]() { gol::run_test(); }, runs, warmup_runs);
-  trace_benchmark.print_summary("Game of Life - Trace Region");
+  trace_benchmark.run_benchmark([]() { gol::run_test(); }, runs, warmup_runs, test_name);
 
   std::cout << "\nRunning with rc region" << std::endl;
   GCBenchmark rc_benchmark;
-  rc_benchmark.run_benchmark([]() { gol_rc::run_test(); }, runs, warmup_runs);
-  rc_benchmark.print_summary("Game of Life - RC Region");
+  rc_benchmark.run_benchmark([]() { gol_rc::run_test(); }, runs, warmup_runs, test_name);
 
   return 0;
 }

@@ -1,6 +1,6 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-#include "arbitrary_nodes.h"
+#include "partially_connected.h"
 
 #include "debug/logging.h"
 
@@ -47,31 +47,71 @@ int main(int argc, char** argv)
   size_t warmup_runs = 1;
 
   SystematicTestHarness harness(argc, argv);
-  const char* test_name = __FILE__;
+
   GCBenchmark trace_benchmark;
-  GCBenchmark rc_benchmark;
   GCBenchmark arena_benchmark;
+
+
   std::cout << "Running Churn" << std::endl;
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
-        [=]() {arbitrary_nodes::run_churn_test<RegionType::Trace>(size, regions); });
-    }, runs, warmup_runs, test_name
+        [=]() {partially_connected::run_churn_test<RegionType::Trace>(size, regions); });
+    }, runs, warmup_runs
   );
 
-  rc_benchmark.run_benchmark(
+  trace_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
-        [&]() { arbitrary_nodes::run_test<RegionType::Rc>(size, regions); });
+        [&]() { partially_connected::run_test<RegionType::Trace>(size, regions); });
     },
-    runs, warmup_runs, test_name);
+    2,
+    2);
 
   arena_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
-        [&]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
+        [&]() { partially_connected::run_test<RegionType::Arena>(size, regions); });
     },
-    runs, warmup_runs, test_name);
+    2,
+    2);
 
+  arena_benchmark.print_summary("Arbitrary Nodes - Using Arena");
+  trace_benchmark.print_summary("Arbitrary Nodes - Using Trace");
+
+  return 0;
+}
+
+#if defined(_WIN32) || defined(_WIN64)
+#  define EXPORT __declspec(dllexport)
+#else
+#  define EXPORT
+#endif
+
+extern "C" EXPORT int run_benchmark(int argc, char** argv)
+{
+  opt::Opt opt(argc, argv);
+
+  // Default values
+  int size = 1010;
+  int regions = 100;
+  bool enable_log = true;
+
+  // Parse command line arguments
+  if (argc >= 3)
+  {
+    size = std::atoi(argv[1]);
+    regions = std::atoi(argv[2]);
+  }
+
+  if (argc >= 4)
+  {
+    std::string log_arg = argv[3];
+    if (log_arg == "log")
+    {
+      enable_log = true;
+    }
+  }
+  partially_connected::run_test<RegionType::Trace>(size, regions);
   return 0;
 }
