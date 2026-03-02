@@ -107,6 +107,7 @@ namespace verona::rt::api
     {
       case RegionType::Trace:
       case RegionType::Arena:
+      case RegionType::SemiSpace:
         break;
       case RegionType::Rc:
         ((RegionRc*)md)->open(r);
@@ -126,6 +127,7 @@ namespace verona::rt::api
     {
       case RegionType::Trace:
       case RegionType::Arena:
+      case RegionType::SemiSpace:
         break;
       case RegionType::Rc:
         ((RegionRc*)md)->close(RegionContext::get_entry_point());
@@ -184,6 +186,8 @@ namespace verona::rt::api
         return r;
       case RegionType::Rc:
         abort();
+      case RegionType::SemiSpace:
+        abort(); // Merge not supported for semi-space regions
     }
     abort();
   }
@@ -227,6 +231,8 @@ namespace verona::rt::api
         return RegionArena::alloc(RegionContext::get_entry_point(), d);
       case RegionType::Rc:
         return RegionRc::alloc((RegionRc*)RegionContext::get_region(), d);
+      case RegionType::SemiSpace:
+        return RegionSemiSpace::alloc(RegionContext::get_entry_point(), d);
     }
     // Unreachable as case is exhaustive
     abort();
@@ -292,6 +298,9 @@ namespace verona::rt::api
       case RegionType::Rc:
         entry_point = RegionRc::create(d);
         break;
+      case RegionType::SemiSpace:
+        entry_point = RegionSemiSpace::create(d);
+        break;
     }
     return {reinterpret_cast<T*>(entry_point)};
   }
@@ -308,6 +317,9 @@ namespace verona::rt::api
         break;
       case RegionType::Rc:
         abort(); // TODO
+        break;
+      case RegionType::SemiSpace:
+        RegionSemiSpace::swap_root(RegionContext::get_entry_point(), o);
         break;
     }
     RegionContext::get_entry_point() = o;
@@ -346,6 +358,15 @@ namespace verona::rt::api
         obj_before =
           ((RegionRc*)RegionContext::get_region())->get_region_size();
         break;
+      case RegionType::SemiSpace:
+        mem_before = ((RegionSemiSpace*)RegionContext::get_region())
+                       ->get_current_memory_used();
+        for (auto p : *((RegionSemiSpace*)RegionContext::get_region()))
+        {
+          UNUSED(p);
+          obj_before++;
+        }
+        break;
     }
 
     MeasureTime m(true);
@@ -364,6 +385,14 @@ namespace verona::rt::api
           RegionContext::get_entry_point(),
           (RegionRc*)RegionContext::get_region());
         break;
+      case RegionType::SemiSpace:
+      {
+        auto* new_entry = RegionSemiSpace::gc(
+          RegionContext::get_entry_point(),
+          (RegionSemiSpace*)RegionContext::get_region());
+        RegionContext::get_entry_point() = new_entry;
+        break;
+      }
     }
 
     uint64_t duration_ns = m.get_time().count();
@@ -411,6 +440,15 @@ namespace verona::rt::api
       case RegionType::Rc:
         mem_before = ((RegionRc*)r->get_region())->get_current_memory_used();
         obj_before = ((RegionRc*)r->get_region())->get_region_size();
+        break;
+      case RegionType::SemiSpace:
+        mem_before =
+          ((RegionSemiSpace*)r->get_region())->get_current_memory_used();
+        for (auto p : *((RegionSemiSpace*)r->get_region()))
+        {
+          UNUSED(p);
+          obj_before++;
+        }
         break;
     }
 
@@ -460,6 +498,13 @@ namespace verona::rt::api
         return count;
       case RegionType::Rc:
         return ((RegionRc*)r)->get_region_size();
+      case RegionType::SemiSpace:
+        for (auto p : *((RegionSemiSpace*)r))
+        {
+          UNUSED(p);
+          count++;
+        }
+        return count;
       default:
         abort();
     }
@@ -481,6 +526,8 @@ namespace verona::rt::api
         return ((RegionArena*)r)->get_current_memory_used();
       case RegionType::Rc:
         return ((RegionRc*)r)->get_current_memory_used();
+      case RegionType::SemiSpace:
+        return ((RegionSemiSpace*)r)->get_current_memory_used();
       default:
         abort();
     }

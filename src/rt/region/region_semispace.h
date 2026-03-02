@@ -1,0 +1,797 @@
+// Copyright Microsoft and Project Verona Contributors.
+// SPDX-License-Identifier: MIT
+
+#pragma once
+
+#include "../object/object.h"
+#include "region_base.h"
+
+#include <cstddef>
+#include <cstring>
+
+namespace verona::rt
+{
+  using namespace snmalloc;
+
+  /**
+   * Please see region.h for the full documentation.
+   *
+   * This is a concrete implementation of a region using a Cheney-style
+   * semi-space copying garbage collector. This class inherits from RegionBase.
+   *
+   * The collector maintains two equally-sized memory spaces:
+   *   - from-space: where objects are currently allocated (bump allocation)
+   *   - to-space: where live objects are copied during GC
+   *
+   * During GC, the collector uses two pointers into to-space:
+   *   - scan: points to the next object to be scanned (BFS queue front)
+   *   - free: points to where the next copied object will go (BFS queue back)
+   *
+   * Objects are copied from from-space to to-space. After copying, a forwarding
+   * pointer is installed in the old object's header (using the MARKED tag with
+   * the new address in the upper bits). After GC, the spaces are swapped -
+   * to-space becomes the new from-space.
+   *
+   * Objects that are too large to fit in a semi-space are allocated separately
+   * via heap::alloc and tracked in a linked list ("large object list"). Large
+   * objects are not copied; they are kept in place. If a large object is
+   * reachable from the root, it is marked. We later traverse the large object
+   * ring to create a new ring of just the marked (live) objects and deallocate
+   * the objects in the old ring. 
+   **/
+  class RegionSemiSpace : public RegionBase
+  {
+  public:
+    template<RegionBase::IteratorType type>
+    class iterator;
+
+  private:
+    friend class Region;
+
+    // Semi-space size: 1MB each.
+    static constexpr size_t SEMISPACE_SIZE = 1024 * 1024;
+
+    /// Pointer to from-space (where objects currently live).
+    std::byte* from_space;
+
+    /// Pointer to to-space (used during GC).
+    std::byte* to_space;
+
+    /// Bump pointer: next free byte in from-space for allocation.
+    std::byte* alloc_ptr;
+
+    /// End of from-space.
+    std::byte* alloc_end;
+
+    /// Total memory used by objects (for metrics).
+    size_t current_memory_used = 0;
+
+    /// Linked list of large objects (too big for semi-space).
+    /// Uses Object::next pointers. Null-terminated.
+    Object* large_objects = nullptr;
+
+    explicit RegionSemiSpace()
+    : RegionBase(),
+      from_space(nullptr),
+      to_space(nullptr),
+      alloc_ptr(nullptr),
+      alloc_end(nullptr)
+    {
+      // Allocate two semi-spaces.
+      from_space = (std::byte*)heap::alloc(SEMISPACE_SIZE);
+      to_space = (std::byte*)heap::alloc(SEMISPACE_SIZE);
+      alloc_ptr = from_space;
+      alloc_end = from_space + SEMISPACE_SIZE;
+    }
+
+    static const Descriptor* desc()
+    {
+      static constexpr Descriptor desc = {
+        vsizeof<RegionSemiSpace>, nullptr, nullptr, nullptr};
+      return &desc;
+    }
+
+  public:
+    inline static RegionSemiSpace* get(Object* o)
+    {
+      assert(o->debug_is_iso());
+      assert(is_semispace_region(o->get_region()));
+      return (RegionSemiSpace*)o->get_region();
+    }
+
+    inline static bool is_semispace_region(Object* o)
+    {
+      return o->is_type(desc());
+    }
+
+    size_t get_current_memory_used() const
+    {
+      return current_memory_used;
+    }
+
+    /**
+     * Creates a new semi-space region by allocating Object `o` of type `desc`.
+     * The object is initialised as the Iso object for that region.
+     * Returns a pointer to `o`.
+     **/
+    template<size_t size = 0>
+    static Object* create(const Descriptor* desc)
+    {
+      // Allocate and construct region metadata object.
+      void* p = heap::alloc<vsizeof<RegionSemiSpace>>();
+      Object* o = Object::register_object(p, RegionSemiSpace::desc());
+      auto reg = new (o) RegionSemiSpace();
+
+      // Allocate the iso object within the semi-space.
+      Object* iso = reg->alloc_internal(desc);
+      assert(Object::debug_is_aligned(iso));
+
+      iso->init_iso();
+      iso->set_region(reg);
+
+      return iso;
+    }
+
+    /**
+     * Allocates an object of type `desc` in the region represented by
+     * Iso object `in`. Returns a pointer to the new object.
+     **/
+    template<size_t size = 0>
+    static Object* alloc(Object* in, const Descriptor* desc)
+    {
+      RegionSemiSpace* reg = get(in);
+      Object* o = reg->alloc_internal(desc);
+      assert(Object::debug_is_aligned(o));
+      return o;
+    }
+
+    /**
+     * Insert the Object `o` into the RememberedSet of `into`'s region.
+     **/
+    template<TransferOwnership transfer = NoTransfer>
+    static void insert(Object* into, Object* o)
+    {
+      assert(o->debug_is_immutable() || o->debug_is_shared());
+      RegionSemiSpace* reg = get(into);
+      Object::RegionMD c;
+      o = o->root_and_class(c);
+      reg->RememberedSet::insert<transfer>(o);
+    }
+
+    /**
+     * Swap the Iso (root) object of the region.
+     **/
+    static void swap_root(Object* prev, Object* next)
+    {
+      assert(prev != next);
+      assert(prev->debug_is_iso());
+      assert(next->debug_is_mutable());
+      RegionSemiSpace* reg = get(prev);
+      UNUSED(reg);
+
+      // Clear iso status on old root.
+      prev->init_next(nullptr);
+
+      // Set new root's iso status.
+      next->init_iso();
+      next->set_region(prev->get_region());
+    }
+
+    /**
+     * Run Cheney-style semi-space garbage collection.
+     *
+     * Algorithm:
+     *   1. Copy the iso (root) object to to-space, install forwarding pointer.
+     *   2. Cheney scan loop — use scan/free pointers as a BFS queue:
+     *      - For each scanned to-space object, trace its fields.
+     *      - From-space objects are copied to to-space (forwarding pointer
+     *        installed); large objects are marked live in place.
+     *      - ISO, IMMUTABLE, SHARED fields are left as-is / remembered.
+     *   3. Update all pointers in to-space objects to forwarded addresses.
+     *   4. Update pointers in live large objects; finalize/free dead ones.
+     *   5. Finalize and destruct dead objects in old from-space.
+     *   6. Swap spaces and update iso entry point.
+     **/
+    static Object* gc(Object* o, RegionSemiSpace* reg)
+    {
+      assert(o->debug_is_iso());
+
+      Logging::cout() << "SemiSpace GC called for: " << o << Logging::endl;
+
+      std::byte* to_start = reg->to_space;
+      std::byte* scan = to_start;
+      std::byte* free_ptr = to_start;
+      std::byte* to_end = to_start + SEMISPACE_SIZE;
+
+      // Phase 1: Copy the iso root object to to-space.
+      Object* new_iso = copy_object(o, free_ptr, to_end);
+      assert(new_iso != nullptr);
+
+      // Phase 2: Cheney scan loop.
+      // scan walks through to-space objects; free_ptr is where next copy goes.
+      // From-space objects are copied on first encounter; large objects are
+      // marked as live in place (they are handled separately in Phase 4).
+      while (scan < free_ptr)
+      {
+        Object* current = Object::object_start(scan);
+        size_t obj_size =
+          snmalloc::bits::align_up(current->size(), Object::ALIGNMENT);
+
+        // Trace this object's fields.
+        ObjectStack fields;
+        current->trace(fields);
+
+        while (!fields.empty())
+        {
+          Object* field = fields.pop();
+          switch (field->get_class())
+          {
+            case Object::ISO:
+              // Subregion pointer — don't copy, leave as-is.
+              break;
+
+            case Object::UNMARKED:
+            {
+              // Live object in from-space, not yet copied.
+              if (is_in_space(field, reg->from_space, SEMISPACE_SIZE))
+              {
+                Object* new_obj = copy_object(field, free_ptr, to_end);
+                if (new_obj == nullptr)
+                {
+                  // Out of to-space. This shouldn't happen if spaces are
+                  // equal size and we only copy live data. Abort.
+                  abort();
+                }
+                // Update the pointer in current's field to point to new
+                // location. The trace function pushed the raw pointer value;
+                // we let update_pointers handle pointer fixup below.
+              }
+              else if (is_large_object(field, reg))
+              {
+                // Large object: mark it as live (use MARKED tag).
+                field->mark();
+              }
+              break;
+            }
+
+            case Object::MARKED:
+            {
+              // Already copied (forwarded) or marked large object.
+              // Will be fixed up in the pointer update pass.
+              break;
+            }
+
+            case Object::SCC_PTR:
+            {
+              Object* imm = field->immutable();
+              reg->RememberedSet::mark(imm);
+              break;
+            }
+
+            case Object::RC:
+            case Object::SHARED:
+            {
+              reg->RememberedSet::mark(field);
+              break;
+            }
+
+            default:
+              break;
+          }
+        }
+
+        scan += obj_size;
+      }
+
+      // Phase 3: Update all pointers in to-space objects to new addresses.
+      update_all_pointers(to_start, free_ptr, reg);
+
+      // Phase 4: Update pointers in large objects and collect dead large
+      // objects.
+      Object* live_large = nullptr;
+      {
+        Object* lo = reg->large_objects;
+        while (lo != nullptr)
+        {
+          Object* next_lo = lo->get_next();
+          if (lo->get_class() == Object::MARKED)
+          {
+            // Live large object — unmark and update its pointers.
+            lo->unmark();
+            update_object_pointers(lo, reg);
+            lo->init_next(live_large);
+            live_large = lo;
+          }
+          else
+          {
+            // Dead large object — finalize and deallocate.
+            ObjectStack dead_isos;
+            reg->current_memory_used -= lo->size();
+            if (!lo->is_trivial())
+            {
+              lo->finalise(nullptr, dead_isos);
+              lo->destructor();
+            }
+            lo->dealloc();
+          }
+          lo = next_lo;
+        }
+      }
+      reg->large_objects = live_large;
+
+      // Phase 5: Finalize dead objects in old from-space.
+      // All non-forwarded objects in from-space are dead.
+      // We need to run finalisers before destructors for non-trivial objects.
+      {
+        // First pass: finalisers for non-trivial dead objects in from-space.
+        std::byte* p = reg->from_space;
+        std::byte* end = reg->alloc_ptr;
+        ObjectStack dummy_isos;
+        while (p < end)
+        {
+          Object* obj = Object::object_start(p);
+          size_t obj_size =
+            snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
+
+          if (obj->get_class() != Object::MARKED)
+          {
+            // This object was NOT forwarded — it's dead.
+            if (!obj->is_trivial())
+            {
+              obj->finalise(nullptr, dummy_isos);
+            }
+          }
+          p += obj_size;
+        }
+
+        // Second pass: destructors for non-trivial dead objects.
+        p = reg->from_space;
+        while (p < end)
+        {
+          Object* obj = Object::object_start(p);
+          size_t obj_size =
+            snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
+
+          if (obj->get_class() != Object::MARKED)
+          {
+            if (!obj->is_trivial())
+            {
+              obj->destructor();
+            }
+          }
+          p += obj_size;
+        }
+      }
+
+      // Phase 6: Swap spaces.
+      // Old from-space is now free. New from-space is to-space (with live
+      // data).
+      std::byte* old_from = reg->from_space;
+      reg->from_space = reg->to_space;
+      reg->to_space = old_from;
+      reg->alloc_ptr = free_ptr;
+      reg->alloc_end = reg->from_space + SEMISPACE_SIZE;
+
+      // Update memory used: the live data is [from_space, alloc_ptr).
+      reg->current_memory_used = 0;
+      {
+        std::byte* p = reg->from_space;
+        while (p < reg->alloc_ptr)
+        {
+          Object* obj = Object::object_start(p);
+          reg->current_memory_used += obj->size();
+          p += snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
+        }
+        // Add large objects.
+        Object* lo = reg->large_objects;
+        while (lo != nullptr)
+        {
+          reg->current_memory_used += lo->size();
+          lo = lo->get_next();
+        }
+      }
+
+      // Sweep the remembered set.
+      reg->RememberedSet::sweep();
+
+      // Set up new iso.
+      new_iso->init_iso();
+      new_iso->set_region(reg);
+
+      Logging::cout() << "SemiSpace GC complete. Old iso: " << o
+                      << " New iso: " << new_iso << Logging::endl;
+
+      return new_iso;
+    }
+
+  private:
+    /**
+     * Allocate an object of type `desc` in the from-space.
+     * If the object is too large for the semi-space, allocate via heap.
+     **/
+    Object* alloc_internal(const Descriptor* desc)
+    {
+      size_t sz = snmalloc::bits::align_up(desc->size, Object::ALIGNMENT);
+      current_memory_used += desc->size;
+
+      if (sz > SEMISPACE_SIZE / 2)
+      {
+        // Large object: allocate via heap and add to large object list.
+        void* p = heap::alloc(desc->size);
+        Object* o = Object::register_object(p, desc);
+        o->init_next(large_objects);
+        large_objects = o;
+        return o;
+      }
+
+      // Check if we have space in from-space.
+      if (alloc_ptr + sz > alloc_end)
+      {
+        // Out of space. In a real implementation we'd trigger GC or expand.
+        // For now, abort.
+        abort();
+      }
+
+      void* p = alloc_ptr;
+      alloc_ptr += sz;
+      Object* o = Object::register_object(p, desc);
+      o->init_next(nullptr);
+      return o;
+    }
+
+    /**
+     * Check if an object is in a given memory space.
+     **/
+    static bool is_in_space(Object* o, std::byte* space_start, size_t space_sz)
+    {
+      auto addr = (std::byte*)o->real_start();
+      return addr >= space_start && addr < (space_start + space_sz);
+    }
+
+    /**
+     * Check if an object is a large object (allocated outside semi-spaces).
+     **/
+    static bool is_large_object(Object* o, RegionSemiSpace* reg)
+    {
+      return !is_in_space(o, reg->from_space, SEMISPACE_SIZE) &&
+        !is_in_space(o, reg->to_space, SEMISPACE_SIZE);
+    }
+
+    /**
+     * Copy an object from from-space to to-space.
+     * Installs a forwarding pointer in the old object using the MARKED tag.
+     * Returns a pointer to the new object in to-space.
+     * Returns nullptr if there's not enough space.
+     **/
+    static Object* copy_object(Object* old_obj, std::byte*& free_ptr,
+                               std::byte* to_end)
+    {
+      size_t obj_size =
+        snmalloc::bits::align_up(old_obj->size(), Object::ALIGNMENT);
+
+      if (free_ptr + obj_size > to_end)
+        return nullptr;
+
+      // Copy the entire object (header + body) to to-space.
+      void* src = old_obj->real_start();
+      void* dst = free_ptr;
+      std::memcpy(dst, src, obj_size);
+
+      Object* new_obj = Object::object_start(dst);
+      // Ensure the new object is UNMARKED (mutable) — clear any tags.
+      new_obj->init_next(nullptr);
+
+      free_ptr += obj_size;
+
+      // Install forwarding pointer in old object.
+      // We use the MARKED bit plus the new address in the upper bits.
+      // This works because the header `bits` field stores tag in low bits
+      // and payload in upper bits — same pattern as ISO/set_region.
+      old_obj->set_forwarding_pointer(new_obj);
+
+      return new_obj;
+    }
+
+    /**
+     * Update all object pointers in to-space to point to the new locations.
+     **/
+    static void update_all_pointers(std::byte* to_start, std::byte* to_end,
+                                    RegionSemiSpace* reg)
+    {
+      std::byte* p = to_start;
+      while (p < to_end)
+      {
+        Object* obj = Object::object_start(p);
+        size_t obj_size =
+          snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
+        update_object_pointers(obj, reg);
+        p += obj_size;
+      }
+    }
+
+    /**
+     * Forwarding callback passed to Descriptor::relocate.
+     * Returns the new address if the object was moved (forwarded),
+     * otherwise returns the original address unchanged.
+     **/
+    static Object* forward_if_moved(Object* o)
+    {
+      if (is_forwarded(o))
+        return get_forwarding_target(o);
+      return o;
+    }
+
+    /**
+     * Update all pointer fields in a single object to forward to new
+     * addresses.
+     *
+     * If the object's Descriptor provides a `relocate` function, we use it
+     * for exact pointer updates — the object itself knows which of its
+     * fields are pointers and updates them directly via the forwarding
+     * callback. This is 100% correct with no risk of false matches.
+     *
+     * If `relocate` is not available, falls back to a best-effort body
+     * scan that checks each word against from-space bounds and forwarding
+     * status. This fallback can theoretically produce false positives if
+     * a non-pointer integer field coincidentally matches a forwarded
+     * from-space address.
+     **/
+    static void update_object_pointers(Object* obj, RegionSemiSpace* reg)
+    {
+      auto* descriptor = obj->get_descriptor();
+      if (descriptor->relocate != nullptr)
+      {
+        // Exact pointer update via relocate callback.
+        descriptor->relocate(obj, forward_if_moved);
+        return;
+      }
+
+      // Fallback: scan body word-by-word (best-effort).
+      size_t body_size = obj->size() - sizeof(Object::Header);
+      auto* body = (Object**)obj;
+      size_t num_words = body_size / sizeof(Object*);
+
+      for (size_t i = 0; i < num_words; i++)
+      {
+        Object* word = body[i];
+        if (word != nullptr &&
+            is_in_space(word, reg->from_space, SEMISPACE_SIZE) &&
+            is_forwarded(word))
+        {
+          body[i] = get_forwarding_target(word);
+        }
+      }
+    }
+
+    /**
+     * Check if an object has been forwarded (has a forwarding pointer).
+     * A forwarded object has MARKED tag in its header bits.
+     **/
+    static bool is_forwarded(Object* o)
+    {
+      return o->get_class() == Object::MARKED;
+    }
+
+    /**
+     * Get the forwarding target of a forwarded object.
+     **/
+    static Object* get_forwarding_target(Object* o)
+    {
+      assert(is_forwarded(o));
+      return (Object*)(o->get_header().bits & ~Object::MASK);
+    }
+
+    /**
+     * Release and deallocate all objects within the region.
+     **/
+    void release_internal(Object* o, ObjectStack& collect)
+    {
+      assert(o->debug_is_iso());
+
+      Logging::cout() << "Region release: semispace region: " << o
+                      << Logging::endl;
+
+      // Run finalisers on all non-trivial objects in from-space.
+      {
+        std::byte* p = from_space;
+        while (p < alloc_ptr)
+        {
+          Object* obj = Object::object_start(p);
+          size_t obj_size =
+            snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
+          if (!obj->is_trivial())
+          {
+            obj->finalise(o, collect);
+          }
+          p += obj_size;
+        }
+
+        // Finalisers for large objects.
+        Object* lo = large_objects;
+        while (lo != nullptr)
+        {
+          if (!lo->is_trivial())
+            lo->finalise(o, collect);
+          lo = lo->get_next();
+        }
+      }
+
+      // Run destructors on all non-trivial objects.
+      {
+        std::byte* p = from_space;
+        while (p < alloc_ptr)
+        {
+          Object* obj = Object::object_start(p);
+          size_t obj_size =
+            snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
+          if (!obj->is_trivial())
+          {
+            obj->destructor();
+          }
+          p += obj_size;
+        }
+
+        Object* lo = large_objects;
+        while (lo != nullptr)
+        {
+          if (!lo->is_trivial())
+            lo->destructor();
+          lo = lo->get_next();
+        }
+      }
+
+      // Deallocate large objects.
+      {
+        Object* lo = large_objects;
+        while (lo != nullptr)
+        {
+          Object* next = lo->get_next();
+          lo->dealloc();
+          lo = next;
+        }
+      }
+
+      // Deallocate both semi-spaces.
+      heap::dealloc(from_space, SEMISPACE_SIZE);
+      heap::dealloc(to_space, SEMISPACE_SIZE);
+
+      // Sweep the RememberedSet.
+      RememberedSet::sweep();
+
+      // Deallocate region metadata.
+      dealloc();
+    }
+
+  public:
+    /**
+     * Iterator over all objects in the semi-space region.
+     * Iterates through from-space objects and then large objects.
+     **/
+    template<IteratorType type = AllObjects>
+    class iterator
+    {
+      friend class RegionSemiSpace;
+
+      static_assert(
+        type == Trivial || type == NonTrivial || type == AllObjects);
+
+      iterator(RegionSemiSpace* r)
+      : reg(r), arena_ptr(r->from_space), ptr(nullptr), in_large(false)
+      {
+        advance_to_valid();
+      }
+
+      iterator(RegionSemiSpace* r, std::nullptr_t)
+      : reg(r), arena_ptr(nullptr), ptr(nullptr), in_large(false)
+      {}
+
+    public:
+      iterator operator++()
+      {
+        if (in_large)
+        {
+          // Move to next large object.
+          if (ptr != nullptr)
+          {
+            ptr = ptr->get_next();
+            skip_to_valid_large();
+          }
+        }
+        else
+        {
+          // Move to next object in from-space.
+          size_t obj_size =
+            snmalloc::bits::align_up(ptr->size(), Object::ALIGNMENT);
+          arena_ptr = ptr->real_start() + obj_size;
+          ptr = nullptr;
+          advance_to_valid();
+        }
+        return *this;
+      }
+
+      inline bool operator!=(const iterator& other) const
+      {
+        return ptr != other.ptr;
+      }
+
+      inline Object* operator*() const
+      {
+        return ptr;
+      }
+
+    private:
+      RegionSemiSpace* reg;
+      std::byte* arena_ptr;
+      Object* ptr;
+      bool in_large;
+
+      void advance_to_valid()
+      {
+        // Try from-space first.
+        while (arena_ptr < reg->alloc_ptr)
+        {
+          Object* obj = Object::object_start(arena_ptr);
+          size_t obj_size =
+            snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
+
+          bool matches = true;
+          if constexpr (type == Trivial)
+            matches = obj->is_trivial();
+          else if constexpr (type == NonTrivial)
+            matches = !obj->is_trivial();
+
+          if (matches)
+          {
+            ptr = obj;
+            return;
+          }
+          arena_ptr += obj_size;
+        }
+
+        // Then try large objects.
+        in_large = true;
+        ptr = reg->large_objects;
+        skip_to_valid_large();
+      }
+
+      void skip_to_valid_large()
+      {
+        while (ptr != nullptr)
+        {
+          bool matches = true;
+          if constexpr (type == Trivial)
+            matches = ptr->is_trivial();
+          else if constexpr (type == NonTrivial)
+            matches = !ptr->is_trivial();
+
+          if (matches)
+            return;
+          ptr = ptr->get_next();
+        }
+      }
+    };
+
+    template<IteratorType type = AllObjects>
+    inline iterator<type> begin()
+    {
+      return {this};
+    }
+
+    template<IteratorType type = AllObjects>
+    inline iterator<type> end()
+    {
+      return {this, nullptr};
+    }
+
+  private:
+    bool debug_is_in_region(Object* o)
+    {
+      for (auto p : *this)
+      {
+        if (p == o)
+          return true;
+      }
+      return false;
+    }
+  };
+} // namespace verona::rt

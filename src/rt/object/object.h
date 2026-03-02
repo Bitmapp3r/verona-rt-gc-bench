@@ -101,11 +101,21 @@ namespace verona::rt
 
     using DestructorFunction = void (*)(Object* o);
 
+    // Called by a copying GC to update pointer fields in-place after objects
+    // have been relocated. The callback `forward` returns the new address of
+    // an object if it was moved, or the original address if not. The
+    // relocate function must call `forward` on every pointer field and store
+    // the result back, giving the GC exact knowledge of field locations
+    // without resorting to a raw memory scan.
+    using RelocateFunction =
+      void (*)(Object* o, Object* (*forward)(Object*));
+
     size_t size;
     TraceFunction trace;
     FinalFunction finaliser;
     NotifiedFunction notified = nullptr;
     DestructorFunction destructor = nullptr;
+    RelocateFunction relocate = nullptr;
     // TODO: virtual dispatch, pattern matching on type, reflection
   };
 
@@ -398,6 +408,7 @@ namespace verona::rt
     friend class RegionTrace;
     friend class RegionArena;
     friend class RegionRc;
+    friend class RegionSemiSpace;
     friend class RememberedSet;
     friend class ExternalReferenceTable;
     template<typename Entry>
@@ -865,6 +876,17 @@ namespace verona::rt
     inline void dealloc()
     {
       heap::dealloc(&this->get_header(), size());
+    }
+
+    /**
+     * Install a forwarding pointer in this object's header.
+     * Used by the semi-space copying collector to redirect old objects
+     * to their new location in to-space.
+     * Stores the new address in the upper bits with MARKED tag in low bits.
+     **/
+    inline void set_forwarding_pointer(Object* new_location)
+    {
+      get_header().bits = (size_t)new_location | (uint8_t)RegionMD::MARKED;
     }
 
   protected:

@@ -6,6 +6,7 @@
 #include "region_arena.h"
 #include "region_base.h"
 #include "region_rc.h"
+#include "region_semispace.h"
 #include "region_trace.h"
 
 namespace verona::rt
@@ -93,6 +94,12 @@ namespace verona::rt
     using T = RegionRc;
   };
 
+  template<>
+  struct RegionType_to_class<RegionType::SemiSpace>
+  {
+    using T = RegionSemiSpace;
+  };
+
   class Region
   {
   public:
@@ -110,6 +117,8 @@ namespace verona::rt
         return RegionType::Arena;
       else if (RegionRc::is_rc_region(o))
         return RegionType::Rc;
+      else if (RegionSemiSpace::is_semispace_region(o))
+        return RegionType::SemiSpace;
 
       abort();
     }
@@ -169,6 +178,9 @@ namespace verona::rt
           ((RegionRc*)r)->release_internal(o, collect);
           return;
         }
+        case RegionType::SemiSpace:
+          ((RegionSemiSpace*)r)->release_internal(o, collect);
+          return;
         default:
           abort();
       }

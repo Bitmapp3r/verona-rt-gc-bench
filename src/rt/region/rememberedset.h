@@ -17,6 +17,7 @@ namespace verona::rt
   {
     friend class RegionTrace;
     friend class RegionArena;
+    friend class RegionSemiSpace;
 
   private:
     using HashSet = ObjectMap<Object*>;

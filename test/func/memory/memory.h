@@ -24,6 +24,15 @@ struct C1 : public V<C1>
     if (f2 != nullptr)
       st.push(f2);
   }
+
+  void relocate(Object* (*fwd)(Object*))
+  {
+    if (f1 != nullptr)
+      f1 = (C1*)fwd(f1);
+
+    if (f2 != nullptr)
+      f2 = (C1*)fwd(f2);
+  }
 };
 
 struct F1 : public V<F1>

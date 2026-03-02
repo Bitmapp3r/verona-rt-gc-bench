@@ -24,6 +24,7 @@ namespace verona::rt
     Trace,
     Arena,
     Rc,
+    SemiSpace,
   };
 
   class RegionBase : public Object,
@@ -34,6 +35,7 @@ namespace verona::rt
     friend class RegionTrace;
     friend class RegionArena;
     friend class RegionRc;
+    friend class RegionSemiSpace;
 
   public:
     enum IteratorType
