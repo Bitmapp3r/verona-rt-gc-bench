@@ -1,5 +1,19 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
+
+/**
+ * This test creates multiple regions with partially connected graphs (70%
+ * connectivity) rather than fully connected graphs.
+ *
+ * During the churn phase, we traverse the graph to build a working set of
+ * nodes, create new nodes, and randomly add edges between nodes in the working
+ * set. This creates pointer churn where edges are added, updated, and removed
+ * over time, unlike the arbitrary_nodes test which only removes edges.
+ *
+ * This tests GC behavior with ongoing mutation and periodic garbage collection,
+ * where nodes can become unreachable as the graph structure changes.
+ **/
+
 #pragma once
 
 #include "cpp/cown.h"

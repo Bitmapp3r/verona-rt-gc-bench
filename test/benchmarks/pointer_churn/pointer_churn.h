@@ -17,11 +17,15 @@ namespace pointer_churn
   /**
    * This test creates a directed graph of nodes in a chain from the root (id =
    * 0) node. Nodes are able to have a set number of outgoing edges to other,
-   * non-root nodes. We mutate the graph by randomly adding, updating, or
+   * non-root nodes. 
+   * 
+   * We mutate the graph by randomly adding, updating, or
    * attempting to remove outgoing edges to other nodes. This will result in
    * many changes to referenced nodes which can result in nodes/cycles that are
    * disconnected from the root - these may be garbage collected (if the GC
    * supports this) at certain intervals or immediately (depending on GC type).
+   * 
+   * 
    * The graph can prematurely collapse to just the root before being able to
    * mutate the given number of times, at which point we close and release the
    * region and repeat the process with a new region until we have mutated the
@@ -164,11 +168,11 @@ namespace pointer_churn
                 decref(oldEdgeDstNode); // Ref count adjustment for RC
               }
               std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": "
-                        << oldId << " → " << newEdgeDstNode->id << "\n";
+                        << oldId << " -> " << newEdgeDstNode->id << "\n";
             }
             else
             {
-              std::cout << "  [ADD]    Node " << edgeSrcNode->id << " → Node "
+              std::cout << "  [ADD]    Node " << edgeSrcNode->id << " -> Node "
                         << newEdgeDstNode->id << "\n";
             }
           }
@@ -188,7 +192,7 @@ namespace pointer_churn
               {
                 decref(oldEdgeDstNode); // Ref count adjustment for RC
               }
-              std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " ╳→ Node "
+              std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " X-> Node "
                         << oldId << "\n";
             }
           }
@@ -234,25 +238,25 @@ namespace pointer_churn
   {
     if (gc_type == "trace")
     {
-      std::cout << "\n╔═══════════════════════════════════════╗\n";
-      std::cout << "║  Pointer Churn Test: Trace GC         ║\n";
-      std::cout << "╚═══════════════════════════════════════╝\n";
+      std::cout << "\n=========================================\n";
+      std::cout << "|  Pointer Churn Test: Trace GC         |\n";
+      std::cout << "=========================================\n";
       test_pointer_churn<RegionType::Trace>(
         num_nodes, num_mutations, inputSeed);
     }
     else if (gc_type == "arena")
     {
-      std::cout << "\n╔═══════════════════════════════════════╗\n";
-      std::cout << "║  Pointer Churn Test: Arena            ║\n";
-      std::cout << "╚═══════════════════════════════════════╝\n";
+      std::cout << "\n=========================================\n";
+      std::cout << "|  Pointer Churn Test: Arena            |\n";
+      std::cout << "=========================================\n";
       test_pointer_churn<RegionType::Arena>(
         num_nodes, num_mutations, inputSeed);
     }
     else
     {
-      std::cout << "\n╔═══════════════════════════════════════╗\n";
-      std::cout << "║  Pointer Churn Test: RC GC            ║\n";
-      std::cout << "╚═══════════════════════════════════════╝\n";
+      std::cout << "\n=========================================\n";
+      std::cout << "|  Pointer Churn Test: RC GC            |\n";
+      std::cout << "=========================================\n";
       test_pointer_churn<RegionType::Rc>(num_nodes, num_mutations, inputSeed);
     }
   }

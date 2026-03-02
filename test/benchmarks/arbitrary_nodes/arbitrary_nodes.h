@@ -1,5 +1,17 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
+
+/**
+ * This test creates multiple regions, each containing a fully connected graph
+ * of nodes.
+ *
+ * Starting from the region's bridge node, we randomly select and traverse an
+ * outgoing edge, then remove that edge. This continues until the current node
+ * has no outgoing edges.
+ *
+ * This tests GC behavior as nodes become unreachable during edge removal.
+ **/
+
 #pragma once
 
 #include "cpp/cown.h"

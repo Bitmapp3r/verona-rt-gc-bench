@@ -219,9 +219,9 @@ if __name__ == "__main__":
     use_sys = "--sys" in sys.argv
     if use_sys:
         sys.argv.remove("--sys")
-        TEST_DIR = BUILD_DIR / "test" / "benchmarks" / "sys" / DEBUG
+        lib_type = "sys-library"
     else:
-        TEST_DIR = BUILD_DIR / "test" / "benchmarks" / "con" / DEBUG
+        lib_type = "con-library"
 
     # Argument parsing: python benchmark_visualizer.py --csv <csvfile> | [runs] [warmup_runs] <test_name> [args...]
     args = sys.argv[1:]
@@ -268,24 +268,39 @@ if __name__ == "__main__":
                 "       python benchmark_visualizer.py [runs] [warmup_runs] <test_name> --sys [args...]"
             )
             sys.exit(1)
+        
+        # Construct TEST_DIR based on test_name
+        TEST_DIR = BUILD_DIR / "test" / "benchmarks" / test_name / lib_type / DEBUG
+        
         # Delete any existing CSV files first
-        for old_csv in TEST_DIR.glob("*.csv"):
-            old_csv.unlink()
+        if TEST_DIR.exists():
+            for old_csv in TEST_DIR.glob("*.csv"):
+                old_csv.unlink()
 
         # List available test libraries for info (optional, can be used for validation or listing)
-        test_libs = list(TEST_DIR.glob(f"benchmarks-con-*{lib_ext}"))
+        if TEST_DIR.exists():
+            test_libs = list(TEST_DIR.glob(f"benchmarks-*{lib_ext}"))
+        else:
+            test_libs = []
 
         # Construct the test library filename
-        if "dll" in test_name:  
+        if "dll" in test_name or lib_ext in test_name:
             test_lib_name = f"{test_name}"
         else:
-            test_lib_name = f"{test_name}{lib_ext}"
+            test_lib_name = f"benchmarks-{lib_type.replace('-library', '')}-{test_name}{lib_ext}"
         test_lib_path = TEST_DIR / test_lib_name
         if not test_lib_path.exists():
             print(f"Error: Test library not found: {test_lib_path}")
             print("Available test libraries:")
             for tlib in test_libs:
                 print(f"  {tlib.name}")
+            # List all available test directories
+            benchmarks_dir = BUILD_DIR / "test" / "benchmarks"
+            if benchmarks_dir.exists():
+                print("\nAvailable tests:")
+                for test_dir in benchmarks_dir.iterdir():
+                    if test_dir.is_dir() and (test_dir / lib_type / DEBUG).exists():
+                        print(f"  {test_dir.name}")
             sys.exit(1)
 
         # Run benchmarker.exe with the test library as argument

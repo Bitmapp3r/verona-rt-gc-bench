@@ -10,20 +10,18 @@
 #include <vector>
 #include <verona.h>
 
-/*
-
-Tests RegionTrace by creating a grid of nodes and deleting edges such that
-nodes become unreachable from the root. These unreachable should be freed
-by the garbage collector. At every step, we check:
-    the number of unreachable nodes == number of freed nodes
-
-We have a number of "walkers" walking across the grid, destroying edges where
-they move. the root of the grid is the top left node.
-
-grid size, number of steps to simulate and number of walkers are configurable.
-
-
-*/
+/**
+ * This test creates a grid of nodes with a configurable number of "walkers"
+ * moving across the grid. The root of the grid is the top left node.
+ *
+ * Each walker randomly moves to adjacent nodes, destroying edges as they move.
+ * This causes nodes to become unreachable from the root.
+ *
+ * This tests RegionTrace by verifying that unreachable nodes are freed by the
+ * garbage collector. At every step, we check that the number of unreachable
+ * nodes equals the number of freed nodes. Grid size, number of steps, and
+ * number of walkers are configurable.
+ **/
 
 class Node : public V<Node>
 {

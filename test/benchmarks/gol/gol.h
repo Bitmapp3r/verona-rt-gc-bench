@@ -1,5 +1,20 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
+
+/**
+ * This test simulates Conway's Game of Life on a toroidal grid within a single
+ * region. The simulation starts with an R-pentomino pattern and runs for a
+ * specified number of generations.
+ *
+ * Each generation applies the standard rules (birth on 3 neighbors, survival on
+ * 2-3 neighbors) and intentionally allocates new Cell objects for all surviving
+ * cells, creating garbage from the previous generation's cells.
+ *
+ * This tests region-based GC effectiveness by forcing collection of dead cells
+ * after each generation and verifying the heap size matches the expected number
+ * of live cells.
+ **/
+
 #pragma once
 
 #include <debug/harness.h>

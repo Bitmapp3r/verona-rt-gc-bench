@@ -1,5 +1,11 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
+
+/**
+ * This test is the same Game of Life simulation as gol.h, but using RC-based 
+ * regions instead.
+ **/
+
 #pragma once
 
 #include <debug/harness.h>

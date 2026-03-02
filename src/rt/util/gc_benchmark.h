@@ -494,7 +494,7 @@ namespace verona::rt::api
 
     std::filesystem::path repo_root = this_file.parent_path().parent_path().parent_path().parent_path();
     std::string dir = (repo_root / "CSVs" / filename_str).string();
-    std::filesystem::create_directory(dir);
+    std::filesystem::create_directories(dir);
     csv_filename += region_type_str + ".csv";
     std::string base_filename = std::filesystem::path(csv_filename).filename().string();
     std::string fullpath = dir + "/" + base_filename;

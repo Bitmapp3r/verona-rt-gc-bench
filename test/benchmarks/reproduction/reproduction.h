@@ -1,6 +1,20 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
 
+/**
+ * This test creates a ring of Organisms, each containing a tree of Nodes. The
+ * test simulates multiple generations with a configurable population size.
+ *
+ * Each generation has a killing phase where organisms are randomly removed from
+ * the ring based on a kill percentage, followed by a reproduction phase where
+ * new organisms are created by combining genetic material (node trees) from two
+ * parent organisms.
+ *
+ * This tests region-based GC with a dynamic population that grows and shrinks,
+ * where garbage collection runs after the killing phase to reclaim unreachable
+ * organisms and their associated node trees.
+ **/
+
 #pragma once
 
 #include <debug/harness.h>
