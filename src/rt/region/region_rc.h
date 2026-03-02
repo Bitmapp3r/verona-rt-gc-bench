@@ -70,6 +70,11 @@ namespace verona::rt
       return region_size;
     }
 
+    size_t get_current_memory_used() const
+    {
+      return current_memory_used;
+    }
+
     inline static bool is_rc_region(Object* o)
     {
       return o->is_type(desc());
@@ -157,10 +162,6 @@ namespace verona::rt
     static void incref(Object* o)
     {
       o->incref_rc_region();
-
-      // TODO: Currently we don't remove items from the Lins stack because
-      // there is no way to find the object in the stack without an O(n) pass.
-      // This is still technically correct, but inefficient.
     }
 
     /// Decrements the reference count of `o`. The object `in` is the entry
@@ -565,6 +566,7 @@ namespace verona::rt
       {
         Object* o = gc.pop();
         reg->region_size -= 1;
+        reg->current_memory_used -= o->size();
         o->destructor();
         o->dealloc();
       }
@@ -609,6 +611,17 @@ namespace verona::rt
               p->finalise(nullptr, sub_regions);
               gc.push(p);
             }
+            else
+            {
+              // RC is still > 0, so this object may be part of a cycle.
+              // Push it onto the Lins stack as a candidate for cycle
+              // collection, matching the behaviour of decref().
+              if (p->get_rc_colour() != RcColour::BLACK)
+              {
+                p->set_rc_colour(RcColour::BLACK);
+                reg->lins_stack.push(p);
+              }
+            }
             break;
           case Object::SCC_PTR:
             p->immutable();
@@ -633,6 +646,10 @@ namespace verona::rt
       {
         Object* o = gc.pop();
         reg->region_size -= 1;
+        reg->current_memory_used -= o->size();
+        // Remove from the Lins stack before freeing to prevent gc_cycles
+        // from later processing a stale (dangling) pointer.
+        reg->lins_stack.remove(o);
         o->destructor();
         o->dealloc();
       }

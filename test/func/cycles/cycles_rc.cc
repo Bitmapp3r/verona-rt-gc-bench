@@ -1,6 +1,6 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-#include "memory_tree.h"
+#include "cycles_rc.h"
 
 #include <debug/harness.h>
 #include <test/opt.h>
@@ -20,8 +20,8 @@ int main(int argc, char** argv)
 
   if (log)
     Logging::enable_logging();
-
-  memory_tree::run_test();
+  std::cout << "We're running the right file" << std::endl;
+  cycles_rc::run_test();
 
   return 0;
 }

@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "../binomial_heap/binomial_tree.h" // For Node objescts
 #include "../memory/memory.h" // Mainly for the C1 objects
 
-namespace memory_tree
+namespace binomial_heap
 {
   /**
    * Test garbage collection with tree structures.
