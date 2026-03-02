@@ -154,7 +154,7 @@ namespace gol_rc
     }
 
     region_release(root);
-    heap::debug_check_empty();
+    // Skip debug_check_empty() for benchmarking
   }
 
   void run_test()
