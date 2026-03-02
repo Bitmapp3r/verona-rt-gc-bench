@@ -63,3 +63,11 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
 
   return 0;
 }
+
+int main(int argc, char** argv)
+{
+  opt::Opt opt(argc, argv);
+
+  run_benchmark(argc, argv);
+  return 0;
+}
