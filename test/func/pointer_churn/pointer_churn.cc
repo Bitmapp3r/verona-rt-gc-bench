@@ -5,6 +5,7 @@
 #include <util/gc_benchmark.h>
 #include <debug/harness.h>
 #include <test/opt.h>
+#include <util/gc_benchmark.h>
 
 int main(int argc, char** argv)
 {
@@ -34,7 +35,25 @@ int main(int argc, char** argv)
 #endif
 
   if (log)
+  {
     Logging::enable_logging();
+    std::cout << "LOG WORKING\n";
+  } else {
+    std::cout << "LOG NOT WORKING\n";
+  }
+    
+
+   std::cout << "Running with trace region" << std::endl;
+  GCBenchmark trace_benchmark;
+  size_t runs = 10;
+  size_t warmup_runs = 10;
+  trace_benchmark.run_benchmark([&]() { pointer_churn::run_test("trace", num_nodes, num_mutations, seed); }, runs, warmup_runs);
+  trace_benchmark.print_summary("Pointer Churn - Trace Region");
+
+  std::cout << "\nRunning with rc region" << std::endl;
+  GCBenchmark rc_benchmark;
+  rc_benchmark.run_benchmark([&]() { pointer_churn::run_test("rc", num_nodes, num_mutations, seed); }, runs, warmup_runs);
+  rc_benchmark.print_summary("Pointer Churn - RC Region");
 
   // Run test with selected GC type and parameters
   GCBenchmark arena_benchmark;
