@@ -104,7 +104,7 @@ foreach(TEST_MODE "sys" "con")
         LIBRARY_OUTPUT_DIRECTORY ${LIB_OUTPUT_DIR}
         RUNTIME_OUTPUT_DIRECTORY ${LIB_OUTPUT_DIR}
         PREFIX ""
-        OUTPUT_NAME ${VARIANT_TESTNAME}
+        OUTPUT_NAME ${VARIANT_TESTNAME}_lib
         )
         list(APPEND TEST_TARGETS ${VARIANT_TESTNAME}-lib)
         
@@ -117,7 +117,7 @@ foreach(TEST_MODE "sys" "con")
         set_target_properties(${VARIANT_TESTNAME}-bin
         PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${EXE_OUTPUT_DIR}
-        OUTPUT_NAME ${VARIANT_TESTNAME}
+        OUTPUT_NAME ${VARIANT_TESTNAME}_bin
         )
         list(APPEND TEST_TARGETS ${VARIANT_TESTNAME}-bin)
       else()
