@@ -221,6 +221,25 @@ namespace verona::rt
     }
 
     /**
+     * Ensure that at least `bytes` of from-space are available for
+     * future bump allocations, growing the semi-spaces if necessary.
+     * This does NOT allocate any objects — it only reserves capacity.
+     *
+     * Call this before a batch of allocations so that none of them
+     * will trigger grow() and invalidate earlier pointers.
+     **/
+    static void ensure_available(Object* in, size_t bytes)
+    {
+      RegionSemiSpace* reg = get(in);
+      size_t remaining =
+        static_cast<size_t>(reg->alloc_end - reg->alloc_ptr);
+      if (bytes > remaining)
+      {
+        reg->grow(bytes);
+      }
+    }
+
+    /**
      * Insert the Object `o` into the RememberedSet of `into`'s region.
      **/
     template<TransferOwnership transfer = NoTransfer>

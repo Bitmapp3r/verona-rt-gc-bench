@@ -7,14 +7,18 @@
 namespace semispace_gc
 {
   /**
-   * IMPORTANT: After each region_collect() or allocation that may trigger
-   * a semispace growth, ALL C++ local pointers to objects in the region
-   * are INVALIDATED because the GC/grow physically moves objects. Every
-   * time we want to access objects after such an operation, we must
-   * re-read the root via get_root() and traverse from the updated root.
+   * IMPORTANT: After each region_collect() or allocation that may trigger a
+   * semispace growth, ALL C++ local pointers to objects in the region are
+   * INVALIDATED because the GC/grow physically moves objects. Every time we
+   * want to access objects after such an operation, we must re-read the root
+   * via get_root() and traverse from the updated root.
    *
-   * Between allocations/GC calls (when no move can occur), local
-   * variables caching interior objects are safe to reuse.
+   * IMPORTANT: If we are doing concurrent GC then we should always get a new
+   * root when opening up a region as we may have had garbage collection since
+   * it was last closed.
+   *
+   * Between allocations/GC calls (when no move can occur), local variables
+   * caching interior objects are safe to reuse.
    */
 
   // Helper to get the current root iso from the region context,
@@ -105,6 +109,9 @@ namespace semispace_gc
     {
       UsingRegion rr(root);
 
+      region_ensure_available(4 * vsizeof<C1>);
+      root = get_root();
+
       auto* A = new C1;
       auto* B = new C1;
       auto* C = new C1;
@@ -141,9 +148,13 @@ namespace semispace_gc
     {
       UsingRegion rr(root);
 
+      region_ensure_available(3 * vsizeof<C1>);
+      root = get_root();
+
       auto* a = new C1;
       auto* b = new C1;
       auto* c = new C1;
+
       root->f1 = a;
       a->f1 = b;
       b->f1 = c;
@@ -179,8 +190,12 @@ namespace semispace_gc
     {
       UsingRegion rr(root);
 
+      region_ensure_available(2 * vsizeof<C1>);
+      root = get_root();
+
       auto* a = new C1;
       auto* b = new C1;
+
       root->f1 = a;
       a->f1 = b;
 
@@ -204,8 +219,12 @@ namespace semispace_gc
       check(debug_size() == 1); // only root
 
       // Allocate more after multiple GC cycles.
+      region_ensure_available(2 * vsizeof<C1>);
+      root = get_root();
+
       auto* c = new C1;
       auto* d = new C1;
+
       root->f1 = c;
       c->f1 = d;
       check(debug_size() == 3);
@@ -243,6 +262,9 @@ namespace semispace_gc
 
     {
       UsingRegion rr(root);
+
+      region_ensure_available(3 * vsizeof<C1>);
+      root = get_root();
 
       auto* L = new C1;
       auto* R = new C1;
@@ -295,6 +317,9 @@ namespace semispace_gc
 
     {
       UsingRegion rr(root);
+
+      region_ensure_available(5 * vsizeof<C1>);
+      root = get_root();
 
       auto* n1 = new C1;
       auto* n2 = new C1;
@@ -361,7 +386,11 @@ namespace semispace_gc
     {
       UsingRegion rr(root);
 
+      region_ensure_available(1 * vsizeof<C1>);
+      root = get_root();
+
       auto* a = new C1;
+
       root->f1 = a;
       check(debug_size() == 2);
 
@@ -371,8 +400,12 @@ namespace semispace_gc
       check(debug_size() == 2);
 
       // Allocate new objects AFTER GC (in the new from-space).
+      region_ensure_available(2 * vsizeof<C1>);
+      root = get_root();
+
       auto* b = new C1;
       auto* c = new C1;
+
       root->f2 = b;
       b->f1 = c;
 
@@ -416,9 +449,13 @@ namespace semispace_gc
       check(debug_large_object_count() == 0);
 
       // Allocate several small objects. They should all go into from-space.
+      region_ensure_available(3 * vsizeof<C1>);
+      root = get_root();
+
       auto* a = new C1;
       auto* b = new C1;
       auto* c = new C1;
+
       root->f1 = a;
       a->f1 = b;
       b->f1 = c;
@@ -562,6 +599,9 @@ namespace semispace_gc
       UsingRegion rr(root);
 
       // Allocate small objects via MixedNode chain.
+      region_ensure_available(2 * vsizeof<MixedNode>);
+      root = get_root<MixedNode>();
+
       auto* a = new MixedNode;
       auto* b = new MixedNode;
       root->child = a;

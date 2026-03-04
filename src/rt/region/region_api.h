@@ -254,6 +254,37 @@ namespace verona::rt::api
     abort();
   }
 
+  /**
+   * Ensure that at least `bytes` of bump-allocation capacity is
+   * available in the current SemiSpace region's from-space.
+   *
+   * If the space needs to grow, it grows now (moving existing
+   * objects), so the caller must call get_root() / get_entry_point()
+   * afterwards to obtain the updated root pointer.  After that,
+   * subsequent allocations totalling up to `bytes` are guaranteed
+   * not to trigger another growth, keeping all returned pointers
+   * valid.
+   *
+   * Only meaningful for SemiSpace regions; asserts on other types.
+   **/
+  inline void region_ensure_available(size_t bytes)
+  {
+    assert(
+      Region::get_type(RegionContext::get_region()) == RegionType::SemiSpace);
+
+    auto* reg = (RegionSemiSpace*)RegionContext::get_region();
+    RegionSemiSpace::ensure_available(RegionContext::get_entry_point(), bytes);
+
+    // If ensure_available triggered growth, apply the delta to the
+    // entry point (same pattern as create_object).
+    ptrdiff_t delta = reg->consume_grow_delta();
+    if (delta != 0)
+    {
+      Object*& entry = RegionContext::get_entry_point();
+      entry = (Object*)((std::byte*)entry + delta);
+    }
+  }
+
   inline void add_reference(Object*)
   {
     // TODO
