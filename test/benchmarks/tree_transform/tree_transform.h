@@ -10,7 +10,7 @@ using namespace snmalloc;
 using namespace verona::rt;
 using namespace verona::rt::api;
 
-namespace workload_tree
+namespace tree_transform
 {
 
 /**
@@ -212,4 +212,25 @@ namespace workload_tree
     heap::debug_check_empty();
   }
 
-} // namespace workload_tree
+  inline void run_test(
+    const std::string& gc_type,
+    int depth = 10,
+    int transforms = 5)
+  {
+    if (gc_type == "trace")
+    {
+      std::cout << "\nTree Transform Test: Trace GC\n";
+      tree_transform::run_test<RegionType::Trace>(depth, transforms);
+    }
+    else if (gc_type == "arena")
+    {
+      std::cout << "\nTree Transform Test: Arena\n";
+      tree_transform::run_test<RegionType::Arena>(depth, transforms);
+    }
+    else
+    {
+      std::cout << "\nTree Transform Test: RC GC\n";
+      tree_transform::run_test<RegionType::Rc>(depth, transforms);
+    }
+  }
+} // namespace tree_transform
