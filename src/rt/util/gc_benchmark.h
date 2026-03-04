@@ -3,6 +3,7 @@
 #pragma once
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <fstream>
@@ -12,7 +13,9 @@
 #include <region/region_api.h>
 #include <sstream>
 #include <unordered_map>
+
 #include <vector>
+#include <filesystem>
 
 namespace verona::rt::api
 {
@@ -143,6 +146,8 @@ namespace verona::rt::api
       size_t peak_object_count;
       size_t avg_memory_bytes;
       size_t avg_object_count;
+      // Wall-clock timing
+      uint64_t total_run_time_ns;
     };
 
   private:
@@ -162,7 +167,8 @@ namespace verona::rt::api
     void run_benchmark(
       std::function<void()> test_fn,
       size_t num_runs = 5,
-      size_t warmup_runs = 0);
+      size_t warmup_runs = 0,
+      const char* test_name = "Test");
 
     /**
      * Print summary statistics
@@ -261,7 +267,7 @@ namespace verona::rt::api
 
   // Inline implementations
   inline void GCBenchmark::run_benchmark(
-    std::function<void()> test_fn, size_t num_runs, size_t warmup_runs)
+    std::function<void()> test_fn, size_t num_runs, size_t warmup_runs, const char* test_name)
   {
     // Warmup phase
     if (warmup_runs > 0)
@@ -308,12 +314,16 @@ namespace verona::rt::api
           collector.record_gc_measurement(duration_ns, type, mem, obj);
         };
 
+      uint64_t run_time_ns;
       {
         // Enable callback for this run
         auto prev = RegionContext::get_gc_callback();
         RegionContext::set_gc_callback(&callback);
 
+        auto t_start = std::chrono::high_resolution_clock::now();
         test_fn();
+        auto t_end = std::chrono::high_resolution_clock::now();
+        run_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
 
         // Restore previous callback
         RegionContext::set_gc_callback(prev);
@@ -342,14 +352,22 @@ namespace verona::rt::api
          collector.get_peak_memory(),
          collector.get_peak_objects(),
          collector.get_average_memory(),
-         collector.get_average_objects()});
+         collector.get_average_objects(),
+         run_time_ns});
 
-      std::cout << "Run " << (run + 1) << " - GC: " << total_time << " ns ("
+      std::cout << "Run " << (run + 1) << " - Time: " << (run_time_ns / 1000000) << " ms"
+                << " | GC: " << total_time << " ns ("
                 << total_calls << " calls) | Avg Mem: "
                 << format_bytes(collector.get_average_memory())
                 << " | Peak: " << format_bytes(collector.get_peak_memory())
                 << " (" << collector.get_peak_objects() << " obj)\n";
     }
+    std::string path = test_name;
+    size_t pos = path.find_last_of("/\\");
+    if (pos != std::string::npos)
+      path = path.substr(pos + 1);
+    path.resize(path.size() - 4);
+    print_summary(path.c_str());
   }
 
   inline void GCBenchmark::print_summary(const char* test_name) const
@@ -359,19 +377,10 @@ namespace verona::rt::api
       std::cout << "\nNo benchmark results to display.\n";
       return;
     }
+    write_csv(test_name);
 
     // Auto-write CSV file (convert test name to filename: spaces->underscores,
-    // lowercase)
-    std::string csv_filename = test_name;
-    for (char& c : csv_filename)
-    {
-      if (c == ' ' || c == '-')
-        c = '_';
-      else
-        c = std::tolower(c);
-    }
-    csv_filename += ".csv";
-    write_csv(csv_filename.c_str());
+    // lowercase, append region type if available)
 
     // Sort measurements for percentile calculation
     std::vector<uint64_t> sorted_measurements = all_gc_measurements;
@@ -391,16 +400,18 @@ namespace verona::rt::api
     std::cout << std::string(90, '=') << "\n";
     std::cout << "Number of runs: " << run_results.size() << "\n\n";
     std::cout << "Per-Run Results:\n";
-    std::cout << std::left << std::setw(5) << "Run" << std::setw(15)
+    std::cout << std::left << std::setw(5) << "Run" << std::setw(14)
+              << "Run Time(ms)" << std::setw(15)
               << "GC Time(ns)" << std::setw(8) << "Calls" << std::setw(12)
               << "Max(ns)" << std::setw(14) << "Avg Mem" << std::setw(14)
               << "Peak Mem" << std::setw(10) << "Peak Obj\n";
-    std::cout << std::string(78, '-') << "\n";
+    std::cout << std::string(92, '-') << "\n";
 
     for (size_t i = 0; i < run_results.size(); i++)
     {
       const auto& r = run_results[i];
-      std::cout << std::left << std::setw(5) << (i + 1) << std::setw(15)
+      std::cout << std::left << std::setw(5) << (i + 1) << std::setw(14)
+                << (r.total_run_time_ns / 1000000) << std::setw(15)
                 << r.total_gc_time_ns << std::setw(8) << r.gc_call_count
                 << std::setw(12) << r.max_gc_time_ns << std::setw(14)
                 << format_bytes(r.avg_memory_bytes) << std::setw(14)
@@ -408,27 +419,31 @@ namespace verona::rt::api
                 << r.peak_object_count << "\n";
     }
 
-    std::cout << std::string(78, '-') << "\n";
+    std::cout << std::string(92, '-') << "\n";
 
     // Calculate overall averages for average and peak memory
     size_t total_avg_mem = 0, total_peak_mem = 0, total_peak_obj = 0;
+    uint64_t total_run_time = 0;
     for (const auto& r : run_results)
     {
       total_avg_mem += r.avg_memory_bytes;
       total_peak_mem += r.peak_memory_bytes;
       total_peak_obj += r.peak_object_count;
+      total_run_time += r.total_run_time_ns;
     }
     size_t overall_avg_mem = total_avg_mem / run_results.size();
     size_t overall_peak_mem = total_peak_mem / run_results.size();
     size_t overall_peak_obj = total_peak_obj / run_results.size();
+    uint64_t overall_avg_run_time = total_run_time / run_results.size();
 
-    std::cout << std::left << std::setw(5) << "Avg" << std::setw(15)
+    std::cout << std::left << std::setw(5) << "Avg" << std::setw(14)
+              << (overall_avg_run_time / 1000000) << std::setw(15)
               << get_average_gc_time() << std::setw(8)
               << (int)get_average_gc_calls() << std::setw(12) << "-"
               << std::setw(14) << format_bytes(overall_avg_mem) << std::setw(14)
               << format_bytes(overall_peak_mem) << std::setw(10)
               << overall_peak_obj << "\n";
-    std::cout << std::string(78, '-') << "\n";
+    std::cout << std::string(92, '-') << "\n";
 
     uint64_t p50 = calculate_percentile(sorted_measurements, 50);
     uint64_t p99 = calculate_percentile(sorted_measurements, 99);
@@ -465,10 +480,43 @@ namespace verona::rt::api
 
   inline void GCBenchmark::write_csv(const char* filename) const
   {
-    std::ofstream file(filename);
+    std::string filename_str = filename;
+    std::string csv_filename = filename;
+    for (char& c : csv_filename)
+    {
+    if (c == ' ' || c == '-')
+        c = '_';
+    else
+        c = std::tolower(c);
+    }
+      // Determine region type from measurements (if available)
+      std::string region_type_str;
+      if (!all_gc_measurements_with_type.empty())
+      {
+        int region_type = (int)all_gc_measurements_with_type[0].second;
+        const char* type_names[] = {"trace", "arena", "rc"};
+        if (region_type >= 0 && region_type < 3)
+          region_type_str = std::string("_") + type_names[region_type];
+        else
+          region_type_str = "_unknown";
+      }
+
+
+
+    // Ensure CSVs directory exists (platform-independent)
+    // Always use repo root for CSVs directory, 3 parents up from this file
+    std::filesystem::path this_file = __FILE__;
+
+    std::filesystem::path repo_root = this_file.parent_path().parent_path().parent_path().parent_path();
+    std::string dir = (repo_root / "CSVs" / filename_str).string();
+    std::filesystem::create_directory(dir);
+    csv_filename += region_type_str + ".csv";
+    std::string base_filename = std::filesystem::path(csv_filename).filename().string();
+    std::string fullpath = dir + "/" + base_filename;
+    std::ofstream file(fullpath);
     if (!file.is_open())
     {
-      std::cerr << "Error: Could not open file " << filename
+      std::cerr << "Error: Could not open file " << fullpath
                 << " for writing\n";
       return;
     }
@@ -498,7 +546,7 @@ namespace verona::rt::api
 
     // CSV header
     file << "run,gc_time_ns,gc_calls,max_gc_ns,avg_mem_bytes,peak_mem_bytes,"
-            "peak_objects\n";
+            "peak_objects,run_time_ns\n";
 
     // Per-run data
     for (size_t i = 0; i < run_results.size(); ++i)
@@ -506,7 +554,8 @@ namespace verona::rt::api
       const auto& r = run_results[i];
       file << (i + 1) << "," << r.total_gc_time_ns << "," << r.gc_call_count
            << "," << r.max_gc_time_ns << "," << r.avg_memory_bytes << ","
-           << r.peak_memory_bytes << "," << r.peak_object_count << "\n";
+           << r.peak_memory_bytes << "," << r.peak_object_count << ","
+           << r.total_run_time_ns << "\n";
     }
 
     // Summary row

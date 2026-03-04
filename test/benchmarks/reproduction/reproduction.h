@@ -12,9 +12,6 @@
 namespace reproduction
 {
 
-#define LOGGING 0
-#define LOG(x) if (LOGGING) { x; }
-
   // ============================================================
   // Node
   // ============================================================
@@ -57,7 +54,7 @@ namespace reproduction
 
     ~Organism()
     {
-      LOG(std::cout<< "Organism " << id << " destroyed\n");
+      // std::cout << "Organism " << id << " destroyed\n";
     }
 
     void trace(ObjectStack& st)
@@ -68,11 +65,10 @@ namespace reproduction
         st.push(next);
     }
 
-    static Organism* reproduce(Organism* a, Organism* b, std::mt19937& gen)
+    static Organism* reproduce(Organism* a, Organism* b)
     {
-      
+      static thread_local std::mt19937 gen{std::random_device{}()};
       std::uniform_int_distribution<int> coin(0, 1);
-
 
       auto* child = new Organism();
       auto* r = new Node();
@@ -108,10 +104,10 @@ namespace reproduction
     return n;
   }
 
-  Organism* make_organism(int depth)
+  Organism* make_organism()
   {
     auto* o = new Organism();
-    o->root = make_tree(depth);
+    o->root = make_tree(4);
     return o;
   }
 
@@ -125,11 +121,10 @@ namespace reproduction
     // child takes over pos->next position
     child->next = pos->next;
 
-    if constexpr (rt == RegionType::Rc) {
+    if constexpr (rt == RegionType::Rc)
       // incref(child->next);   // preserve reference
-    }
 
-    pos->next = child;
+      pos->next = child;
   }
 
   template<RegionType rt>
@@ -145,7 +140,7 @@ namespace reproduction
     {
       return false;
     }
-    LOG(std::cout<< "trying to kill " << victim->id << "\n");
+    // std::cout << "trying to kill " << victim->id << "\n";
     prev->next = victim->next;
 
     if constexpr (rt == RegionType::Rc)
@@ -158,62 +153,46 @@ namespace reproduction
 
   void printRing(Organism* root)
   {
-    std::cout<< "=========PRINTING RING=========\n";
+    std::cout << "=========PRINTING RING=========\n";
     Organism* start = root;
-    int j = 0;
     int i = 0;
     do
     {
-      j++;
       i++;
       if (root)
-        std::cout<< root->id << " -> ";
+        std::cout << root->id << " -> ";
       else
-        std::cout<< "null";
+        std::cout << "null";
       root = root->next;
-    } while (root != start && j < 1000);
+    } while (root != start);
     if (root)
-      std::cout<< root->id << " -> ";
+      std::cout << root->id << " -> ";
     else
-      std::cout<< "null";
-    std::cout<< "\n";
+      std::cout << "null";
+    std::cout << "\n";
   }
 
   // ============================================================
   // Test driver
   // ============================================================
 
-
-
   template<RegionType rt>
-  void run_test(int generations, int killPercent, int nodeTreeDepth, size_t seed = 0)
+  void run_test(int generations, int killPercent, int popSize, size_t seed = 0)
   {
-    /*
-    Keep nodeTreeDepth small. the larger it is, the exponentially bigger each organism is.
-    A good number is ~7. any more than that and it's too much memory.
-    Increase this number to give trace a hard time.
-    */
-
-
-
-    int initialPopSize = 10;
-    Organism::counter = 0;
     auto* root = new (rt) Organism();
-    int popCount = 1;
+
     {
       UsingRegion rr(root);
 
       // Build initial ring
-      Organism* first = make_organism(nodeTreeDepth);
-      popCount++;
+      Organism* first = make_organism();
       root->next = first;
 
       Organism* cur = first;
 
-      for (int i = 0; i < initialPopSize - 1; i++)
+      for (int i = 0; i < popSize - 1; i++)
       {
-        auto* n = make_organism(nodeTreeDepth);
-        popCount++;
+        auto* n = make_organism();
         cur->next = n;
         cur = n;
       }
@@ -222,7 +201,7 @@ namespace reproduction
       if constexpr (rt == RegionType::Rc)
         incref(first);
 
-      LOG(std::cout<< "Initial region size: " << debug_size() << "\n"); 
+      // std::cout << "Initial region size: " << debug_size() << "\n";
     }
 
     if (seed == 0)
@@ -240,19 +219,16 @@ namespace reproduction
 
         int kills = 0;
 
-        LOG(printRing(root->next));
+        // printRing(root->next);
         // ---- Killing phase ----
-        int aliveCount = popCount;
-        for (int i = 0; i < aliveCount; i++)
+        for (int i = 0; i < popSize; i++)
         {
           if (roulette(gen) < killPercent && cur != prev)
           {
             bool success = unlink_after<rt>(prev);
             cur = prev->next;
-            if (success) {
+            if (success)
               kills++;
-              popCount--; 
-            }
           }
           else
           {
@@ -263,13 +239,13 @@ namespace reproduction
 
         region_collect();
 
-        LOG(std::cout << "Gen " << g
-                  << " kills=" << kills
-                  << " size=" << debug_size()
-                  << "\n");
+        // std::cout << "Gen " << g
+        //           << " kills=" << kills
+        //           << " size=" << debug_size()
+        //           << "\n";
 
         // ---- Reproduction phase ----
-        int births = (killPercent * popCount) / 100;
+        int births = (killPercent * popSize) / 100;
 
         Organism* p1 = root->next;
         Organism* p2 = root->next;
@@ -279,13 +255,12 @@ namespace reproduction
           p1 = p1->next;
           p2 = p2->next->next;
 
-          auto* child = Organism::reproduce(p1, p2, gen);
-          popCount++;
+          auto* child = Organism::reproduce(p1, p2);
           link_after<rt>(p2, child);
         }
 
-        LOG(std::cout << "After reproduction size="
-                  << debug_size() << "\n");
+        // std::cout << "After reproduction size="
+        //           << debug_size() << "\n";
       }
     }
   }
