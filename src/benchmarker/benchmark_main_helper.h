@@ -25,6 +25,20 @@ RegionType stringToRegionType(const std::string& gc_type)
   }
 }
 
+RegionType parseRegionType(int argc, char** argv, const std::string& default_type = "trace")
+{
+  std::string gc_type = default_type;
+  for (int i = 1; i < argc; i++)
+  {
+    if (std::string(argv[i]) == "-g" && i + 1 < argc)
+    {
+      gc_type = argv[i + 1];
+      break;
+    }
+  }
+  return stringToRegionType(gc_type);
+}
+
 template <typename F, typename... Args>
 decltype(auto) run_with_region(RegionType rt, F&& f, Args&&... args) {
     switch (rt) {

@@ -10,6 +10,7 @@ Examples:
   python benchmark_visualizer.py gol
   python benchmark_visualizer.py reproduction --seed 42
   python benchmark_visualizer.py bag --sys
+  python benchmark_visualizer.py bag --run_all
 """
 
 import math
@@ -17,6 +18,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+
+import numpy as np
+from scipy.stats import gaussian_kde
 
 # CHANGE THE STUFF IN EXEPATH AND CON/SYS
 import matplotlib.pyplot as plt
@@ -54,6 +58,7 @@ def parse_csv(filepath):
             else:
                 parts = line.split(",")
                 if len(parts) >= 7:
+                    run_time_ns = int(parts[7]) if len(parts) >= 8 else 0
                     results["runs"].append(
                         (
                             int(parts[0]),
@@ -63,6 +68,7 @@ def parse_csv(filepath):
                             int(parts[4]),
                             int(parts[5]),
                             int(parts[6]),
+                            run_time_ns,
                         )
                     )
     return results
@@ -86,7 +92,7 @@ def plot_bp(ax, data, labels, box_colors, xlabel, title):
     ax.set_xlim(left=left_lim, right=right_lim)
 
 
-def plot(all_results, output_path):
+def plot(all_results, output_path, test_name=None):
     """Generate a 2x3 plot comparing all region types."""
     if not all_results:
         print("No data to plot")
@@ -127,16 +133,15 @@ def plot(all_results, output_path):
             else ("arena" if "arena" in name else ("rc" if "rc" in name else None)),
             colors[idx % len(colors)],
         )
-        for idx, (name, results) in enumerate(all_results.items())
+        for idx, (name) in enumerate(all_results.keys())
     ]
-    print(avg_gc_us_data)
     plot_bp(
         axes[0, 0],
         avg_gc_us_data,
         labels,
         box_colors,
         "Avg GC Time (µs)",
-        "Avg GC Time by Region Type (Boxplot)",
+        "Avg GC Time by Region Type",
     )
     plot_bp(
         axes[0, 1],
@@ -144,7 +149,7 @@ def plot(all_results, output_path):
         labels,
         box_colors,
         "Max GC Time (µs)",
-        "Max GC Time by Region Type (Boxplot)",
+        "Max GC Time by Region Type",
     )
     plot_bp(
         axes[1, 0],
@@ -152,7 +157,7 @@ def plot(all_results, output_path):
         labels,
         box_colors,
         "Avg Memory (KB)",
-        "Avg Memory by Region Type (Boxplot)",
+        "Avg Memory by Region Type",
     )
     plot_bp(
         axes[1, 1],
@@ -160,54 +165,90 @@ def plot(all_results, output_path):
         labels,
         box_colors,
         "Max Memory (KB)",
-        "Max Memory by Region Type (Boxplot)",
+        "Max Memory by Region Type",
     )
 
-    # Latency percentiles: P50 and P99 on x-axis, region types as bars
-    names = list(all_results.keys())
-    p50_values = [r["p50"] / 1e3 for r in all_results.values()]
-    p99_values = [r["p99"] / 1e3 for r in all_results.values()]
-
-    x_lat = range(2)  # P50, P99
-    width_lat = 0.8 / num_types
-
+    # GC latency distribution (bell curve / KDE on log-scale)
+    # KDE is fitted on log-transformed data so distributions at different
+    # magnitudes (e.g. arena ~0.1µs vs trace ~200µs) are all visible.
     for idx, (name, results) in enumerate(all_results.items()):
-        offset = (idx - num_types / 2 + 0.5) * width_lat
-        color = colors[idx % len(colors)]
-        values = [results["p50"] / 1e3, results["p99"] / 1e3]
-        axes[1, 2].bar(
-            [i + offset for i in x_lat], values, width_lat, label=name, color=color
+        gc_times = [(r[1] / r[2]) / 1e3 for r in results["runs"] if r[2] > 0]
+        if len(gc_times) < 2:
+            continue
+        color = region_color_map.get(
+            "trace" if "trace" in name else ("arena" if "arena" in name else ("rc" if "rc" in name else None)),
+            colors[idx % len(colors)],
         )
+        data = np.array(gc_times)
+        data = data[data > 0]  # log requires positive values
+        if len(data) < 2:
+            continue
+        log_data = np.log10(data)
+        kde = gaussian_kde(log_data)
+        # Evaluate over a padded range in log-space
+        lo, hi = log_data.min() - 0.5, log_data.max() + 0.5
+        log_range = np.linspace(lo, hi, 300)
+        density = kde(log_range)
+        # Trim where density < 1% of peak
+        threshold = density.max() * 0.01
+        above = np.where(density >= threshold)[0]
+        log_range = log_range[above[0]:above[-1] + 1]
+        density = density[above[0]:above[-1] + 1]
+        x_range = 10 ** log_range
+        axes[1, 2].plot(x_range, density, label=name, color=color, linewidth=1.5)
+        axes[1, 2].fill_between(x_range, density, alpha=0.15, color=color)
 
-    axes[1, 2].set_ylabel("Latency (µs)")
-    axes[1, 2].set_title("Latency Percentiles")
-    axes[1, 2].set_xticks(x_lat)
-    axes[1, 2].set_xticklabels(["P50", "P99"])
-    axes[1, 2].set_yscale("log")
-    axes[1, 2].legend()
-    axes[0, 2].axis("off")  # Hide the unused subplot
+    axes[1, 2].set_xscale("log")
+    axes[1, 2].set_xlabel("Avg GC Time per Run (µs)")
+    axes[1, 2].set_ylabel("Density (log-scale)")
+    axes[1, 2].set_title("GC Latency Distribution")
+    axes[1, 2].legend(fontsize=8, loc="upper left")
 
-    # Add jitter info as text
-    jitter_text = "\n".join(
-        [f"{name}: {r['jitter'] * 100:.1f}%" for name, r in all_results.items()]
-    )
+    # P50/P99/jitter info box (upper right, won't overlap legend on upper left)
+    info_lines = []
+    for name, r in all_results.items():
+        p50 = r['p50'] / 1e3
+        p99 = r['p99'] / 1e3
+        jitter = r['jitter'] * 100
+        info_lines.append(f"{name}: P50={p50:.1f}µs  P99={p99:.1f}µs  J={jitter:.1f}%")
     axes[1, 2].text(
         0.98,
         0.98,
-        f"Jitter:\n{jitter_text}",
+        "\n".join(info_lines),
         transform=axes[1, 2].transAxes,
         ha="right",
         va="top",
-        fontsize=9,
+        fontsize=7,
         bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
     )
-    first_name = list(all_results.values())[0]["name"]
-    last_underscore = first_name.rfind("_")
-    base_test_name = (
-        first_name[:last_underscore] if last_underscore != -1 else first_name
-    )
+
+    # Run time boxplot in the previously unused subplot
+    run_time_ms_data = [
+        [r[7] / 1e6 for r in results["runs"] if len(r) > 7 and r[7] > 0]
+        for results in all_results.values()
+    ]
+    if any(run_time_ms_data):
+        plot_bp(
+            axes[0, 2],
+            run_time_ms_data,
+            labels,
+            box_colors,
+            "Run Time (ms)",
+            "Total Run Time by Region Type",
+        )
+    else:
+        axes[0, 2].axis("off")
+
+    if test_name:
+        display_name = test_name.replace("_", " ").replace("-", " ").title()
+    else:
+        first_name = list(all_results.values())[0]["name"]
+        last_underscore = first_name.rfind("_")
+        display_name = (
+            first_name[:last_underscore] if last_underscore != -1 else first_name
+        ).replace("_", " ").title()
     fig.suptitle(
-        f"GC Benchmark Comparison ({base_test_name})", fontsize=14, fontweight="bold"
+        f"GC Benchmark: {display_name}", fontsize=14, fontweight="bold"
     )
     plt.tight_layout()
     plt.savefig(output_path, dpi=150)
@@ -219,13 +260,15 @@ if __name__ == "__main__":
     use_sys = "--sys" in sys.argv
     if use_sys:
         sys.argv.remove("--sys")
-        lib_type = "sys-library"
-    else:
-        lib_type = "con-library"
+
+    run_all = "--run_all" in sys.argv
+    if run_all:
+        sys.argv.remove("--run_all")
 
     # Argument parsing: python benchmark_visualizer.py --csv <csvfile> | [runs] [warmup_runs] <test_name> [args...]
     args = sys.argv[1:]
     CSV_DIR = Path(__file__).parent.parent / "CSVs"
+    test_name = None
 
     # CSV mode: --csv must be the first argument
     if len(args) >= 2 and args[0] == "--csv":
@@ -268,39 +311,30 @@ if __name__ == "__main__":
                 "       python benchmark_visualizer.py [runs] [warmup_runs] <test_name> --sys [args...]"
             )
             sys.exit(1)
-        
-        # Construct TEST_DIR based on test_name
+
+        # Build the test directory path:
+        # BUILD_DIR / test / benchmarks / <test_name> / (con-library|sys-library) / DEBUG
+        lib_type = "sys-library" if use_sys else "con-library"
+        prefix = "sys" if use_sys else "con"
         TEST_DIR = BUILD_DIR / "test" / "benchmarks" / test_name / lib_type / DEBUG
-        
+
         # Delete any existing CSV files first
         if TEST_DIR.exists():
             for old_csv in TEST_DIR.glob("*.csv"):
                 old_csv.unlink()
 
-        # List available test libraries for info (optional, can be used for validation or listing)
-        if TEST_DIR.exists():
-            test_libs = list(TEST_DIR.glob(f"benchmarks-*{lib_ext}"))
-        else:
-            test_libs = []
+        # List available benchmarks for info
+        benchmarks_dir = BUILD_DIR / "test" / "benchmarks"
+        available_benchmarks = [d.name for d in benchmarks_dir.iterdir() if d.is_dir()] if benchmarks_dir.exists() else []
 
-        # Construct the test library filename
-        if "dll" in test_name or lib_ext in test_name:
-            test_lib_name = f"{test_name}"
-        else:
-            test_lib_name = f"benchmarks-{lib_type.replace('-library', '')}-{test_name}{lib_ext}"
+        # Construct the test library filename: benchmarks-con-<name>_lib.dll
+        test_lib_name = f"benchmarks-{prefix}-{test_name}_lib{lib_ext}"
         test_lib_path = TEST_DIR / test_lib_name
         if not test_lib_path.exists():
             print(f"Error: Test library not found: {test_lib_path}")
-            print("Available test libraries:")
-            for tlib in test_libs:
-                print(f"  {tlib.name}")
-            # List all available test directories
-            benchmarks_dir = BUILD_DIR / "test" / "benchmarks"
-            if benchmarks_dir.exists():
-                print("\nAvailable tests:")
-                for test_dir in benchmarks_dir.iterdir():
-                    if test_dir.is_dir() and (test_dir / lib_type / DEBUG).exists():
-                        print(f"  {test_dir.name}")
+            print("Available benchmarks:")
+            for bname in available_benchmarks:
+                print(f"  {bname}")
             sys.exit(1)
 
         # Run benchmarker.exe with the test library as argument
@@ -308,20 +342,29 @@ if __name__ == "__main__":
         if not exe.exists():
             print(f"Error: benchmarker_main not found in {exe.parent}")
             sys.exit(1)
-        cmd = [
-            str(exe),
-            f"--runs",
-            runs,
-            f"--warmup_runs",
-            warmup_runs,
-            str(test_lib_path),
-        ] + extra_args
-        print(extra_args)
-        print(f"Running: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        print(result.stdout)
-        if result.stderr:
-            print(result.stderr)
+
+        if run_all:
+            gc_types = ["trace", "rc", "arena"]
+        else:
+            gc_types = [None]
+
+        for gc_type in gc_types:
+            cmd = [
+                str(exe),
+                f"--runs",
+                runs,
+                f"--warmup_runs",
+                warmup_runs,
+                str(test_lib_path),
+            ] + extra_args
+            if gc_type:
+                cmd += ["-g", gc_type]
+            print(extra_args)
+            print(f"Running: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            print(result.stdout)
+            if result.stderr:
+                print(result.stderr)
 
         # Find all CSV files created in the CSVs directory under a subdirectory named after the test
         csv_folder_name = test_lib_name.replace(lib_ext, "")
@@ -333,9 +376,9 @@ if __name__ == "__main__":
         csv_files = list(target_dir.glob("*.csv"))
         if not csv_files:
             print(f"No CSV files found in directory '{target_dir}'")
-            print("Available test libraries:")
-            for tlib in test_libs:
-                print(f"  {tlib.name}")
+            print("Available benchmarks:")
+            for bname in available_benchmarks:
+                print(f"  {bname}")
             sys.exit(1)
 
     print(f"\nFound {len(csv_files)} CSV file(s)")
@@ -362,5 +405,7 @@ if __name__ == "__main__":
         name = base if label_counts[base] == 1 else f"{base}_{label_counts[base]}"
         all_results[name] = results
 
-    output_file = CSV_DIR / "benchmark_comparison.png"
-    plot(all_results, str(output_file))
+    # Determine test name for the plot title
+    plot_test_name = test_name if test_name else None
+    output_file = target_dir / "benchmark_comparison.png"
+    plot(all_results, str(output_file), test_name=plot_test_name)
