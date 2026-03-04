@@ -232,7 +232,23 @@ namespace verona::rt::api
       case RegionType::Rc:
         return RegionRc::alloc((RegionRc*)RegionContext::get_region(), d);
       case RegionType::SemiSpace:
-        return RegionSemiSpace::alloc(RegionContext::get_entry_point(), d);
+      {
+        auto* reg = (RegionSemiSpace*)RegionContext::get_region();
+        Object* o =
+          RegionSemiSpace::alloc(RegionContext::get_entry_point(), d);
+
+        // If the allocation triggered a from-space growth, grow()
+        // relocated all objects but could not update the entry point
+        // in RegionContext (header dependency order). Apply the
+        // pending delta here.
+        ptrdiff_t delta = reg->consume_grow_delta();
+        if (delta != 0)
+        {
+          Object*& entry = RegionContext::get_entry_point();
+          entry = (Object*)((std::byte*)entry + delta);
+        }
+        return o;
+      }
     }
     // Unreachable as case is exhaustive
     abort();
@@ -531,5 +547,41 @@ namespace verona::rt::api
       default:
         abort();
     }
+  }
+
+  /**
+   * Return the current semi-space size for a SemiSpace region.
+   * Aborts if called on a non-SemiSpace region.
+   * For testing and debugging purposes only.
+   **/
+  inline size_t debug_semispace_size()
+  {
+    RegionBase* r = RegionContext::get_region();
+    assert(Region::get_type(r) == RegionType::SemiSpace);
+    return ((RegionSemiSpace*)r)->get_semispace_size();
+  }
+
+  /**
+   * Return the number of objects in the large object list.
+   * Aborts if called on a non-SemiSpace region.
+   * For testing and debugging purposes only.
+   **/
+  inline size_t debug_large_object_count()
+  {
+    RegionBase* r = RegionContext::get_region();
+    assert(Region::get_type(r) == RegionType::SemiSpace);
+    return ((RegionSemiSpace*)r)->get_large_object_count();
+  }
+
+  /**
+   * Return the number of bytes used in from-space.
+   * Aborts if called on a non-SemiSpace region.
+   * For testing and debugging purposes only.
+   **/
+  inline size_t debug_fromspace_used()
+  {
+    RegionBase* r = RegionContext::get_region();
+    assert(Region::get_type(r) == RegionType::SemiSpace);
+    return ((RegionSemiSpace*)r)->get_fromspace_used();
   }
 } // namespace verona::rt

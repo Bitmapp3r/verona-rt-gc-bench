@@ -7,19 +7,85 @@
 namespace semispace_gc
 {
   /**
-   * IMPORTANT: After each region_collect() call with a SemiSpace region, ALL
-   * C++ local pointers to objects in the region are INVALIDATED because the
-   * copying GC physically moves objects. Every time we want to access objects
-   * after a region_collect(), we must first re-read the root (entry point) from
-   * the region context after each GC, and traverse from the updated root to
-   * reach the desired interior objects.
+   * IMPORTANT: After each region_collect() or allocation that may trigger
+   * a semispace growth, ALL C++ local pointers to objects in the region
+   * are INVALIDATED because the GC/grow physically moves objects. Every
+   * time we want to access objects after such an operation, we must
+   * re-read the root via get_root() and traverse from the updated root.
+   *
+   * Between allocations/GC calls (when no move can occur), local
+   * variables caching interior objects are safe to reuse.
    */
 
-  // Helper to get the current root iso as a C1* from the region context.
-  inline C1* get_root()
+  // Helper to get the current root iso from the region context,
+  // cast to the desired type.  Defaults to C1* for the common tests.
+  template<typename T = C1>
+  inline T* get_root()
   {
-    return (C1*)internal::RegionContext::get_entry_point();
+    return (T*)internal::RegionContext::get_entry_point();
   }
+
+  // ---------------------------------------------------------------------------
+  // Object types used by the growth & large-object tests.
+  // ---------------------------------------------------------------------------
+
+  // A chunk that is ~128KB. Several of these will fill the initial 1MB space.
+  static constexpr size_t CHUNK_BODY = 128 * 1024;
+  struct Chunk : public V<Chunk>
+  {
+    Chunk* next = nullptr;
+    uint8_t payload[CHUNK_BODY];
+
+    void trace(ObjectStack& st) const
+    {
+      if (next != nullptr)
+        st.push(next);
+    }
+
+    void relocate(Object* (*fwd)(Object*))
+    {
+      if (next != nullptr)
+        next = (Chunk*)fwd(next);
+    }
+  };
+
+  // An object whose aligned size exceeds LARGE_OBJECT_THRESHOLD (512 KB).
+  // This should always go into the large object list.
+  static constexpr size_t LARGE_BODY = 600 * 1024;
+  struct LargeObj : public V<LargeObj>
+  {
+    uint8_t payload[LARGE_BODY];
+
+    void trace(ObjectStack&) const {}
+  };
+
+  // A node that can hold pointers to both C1 and LargeObj objects.
+  // This lets us build graphs involving large objects without type aliasing.
+  struct MixedNode : public V<MixedNode>
+  {
+    MixedNode* child = nullptr;
+    LargeObj* big = nullptr;
+
+    void trace(ObjectStack& st) const
+    {
+      if (child != nullptr)
+        st.push(child);
+      if (big != nullptr)
+        st.push(big);
+    }
+
+    void relocate(Object* (*fwd)(Object*))
+    {
+      if (child != nullptr)
+        child = (MixedNode*)fwd(child);
+      if (big != nullptr)
+        big = (LargeObj*)fwd(big);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Original functional tests
+  // ---------------------------------------------------------------------------
 
   /**
    * Test 1: Basic GC — create objects, make some unreachable, collect.
@@ -328,6 +394,223 @@ namespace semispace_gc
     heap::debug_check_empty();
   }
 
+  // ---------------------------------------------------------------------------
+  // Tests 8–11: Semispace growth, object placement, and sizing.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Test 8: Small objects are bump-allocated in from-space (not in the large
+   * object list), and the semispace does NOT grow while there is room.
+   */
+  void test_small_objects_in_fromspace()
+  {
+    auto* root = new (RegionType::SemiSpace) C1;
+
+    {
+      UsingRegion rr(root);
+
+      size_t initial_size = debug_semispace_size();
+      check(initial_size == RegionSemiSpace::INITIAL_SEMISPACE_SIZE);
+
+      // Large object list should be empty.
+      check(debug_large_object_count() == 0);
+
+      // Allocate several small objects. They should all go into from-space.
+      auto* a = new C1;
+      auto* b = new C1;
+      auto* c = new C1;
+      root->f1 = a;
+      a->f1 = b;
+      b->f1 = c;
+
+      check(debug_size() == 4);
+      check(debug_large_object_count() == 0);
+
+      // from-space usage should have increased, but semispace should NOT
+      // have grown.
+      check(debug_semispace_size() == initial_size);
+      check(debug_fromspace_used() > 0);
+    }
+
+    region_release(root);
+    heap::debug_check_empty();
+  }
+
+  /**
+   * Test 9: Large objects (> LARGE_OBJECT_THRESHOLD) are allocated into
+   * the large object list, not bump-allocated in from-space.
+   */
+  void test_large_objects_in_large_list()
+  {
+    // Use C1 as the iso root. We allocate LargeObj inside the region.
+    auto* root = new (RegionType::SemiSpace) C1;
+
+    {
+      UsingRegion rr(root);
+
+      check(debug_large_object_count() == 0);
+      size_t used_before = debug_fromspace_used();
+
+      // Allocate a large object — should go to the large object list.
+      auto* big = new LargeObj;
+      UNUSED(big);
+
+      check(debug_large_object_count() == 1);
+      check(debug_size() == 2); // root + big
+
+      // from-space usage should NOT have increased for the large object
+      // (it went to the heap), so used should be the same.
+      check(debug_fromspace_used() == used_before);
+
+      // Semispace should NOT have grown.
+      check(debug_semispace_size() == RegionSemiSpace::INITIAL_SEMISPACE_SIZE);
+
+      // Allocate a second large object.
+      auto* big2 = new LargeObj;
+      UNUSED(big2);
+
+      check(debug_large_object_count() == 2);
+      check(debug_size() == 3);
+      check(debug_fromspace_used() == used_before);
+    }
+
+    region_release(root);
+    heap::debug_check_empty();
+  }
+
+  /**
+   * Test 10: The semispace grows (doubles) only when from-space cannot
+   * fit a new allocation, and the new semispace size is correct.
+   *
+   * After every allocation that may trigger growth we re-read the root
+   * via get_root() and walk the chain to find the tail, since local
+   * pointers to from-space objects are invalidated by grow().
+   */
+  void test_semispace_grows_when_full()
+  {
+    // Use a Chunk as the iso root so the root itself takes space.
+    auto* root = new (RegionType::SemiSpace) Chunk;
+
+    {
+      UsingRegion rr(root);
+
+      size_t ss = debug_semispace_size();
+      check(ss == RegionSemiSpace::INITIAL_SEMISPACE_SIZE);
+
+      // Keep allocating ~128KB chunks until the semispace must grow.
+      // Each Chunk (with header + alignment) is a bit over CHUNK_BODY.
+      // We keep track of how many fit before the first growth event.
+      size_t count = 1; // root is already allocated
+
+      while (debug_semispace_size() == ss)
+      {
+        auto* c = new Chunk;
+
+        // The allocation above may have triggered grow(), which
+        // invalidates all previous from-space pointers. Re-read the
+        // root and walk the chain to find the current tail.
+        root = get_root<Chunk>();
+        Chunk* tail = root;
+        while (tail->next != nullptr)
+          tail = tail->next;
+        tail->next = c;
+
+        count++;
+      }
+
+      // After growth, the semispace should have doubled.
+      check(debug_semispace_size() == ss * 2);
+
+      // We should have allocated roughly ss / sizeof(Chunk) objects
+      // before the growth triggered (sanity check — at least a few).
+      check(count > 2);
+
+      std::cout << "    (grew after " << count << " chunks)" << std::endl;
+
+      // Allocate a few more — should fit without another growth event.
+      size_t ss2 = debug_semispace_size();
+      auto* extra = new Chunk;
+
+      // Refresh root and link 'extra' at the tail.
+      root = get_root<Chunk>();
+      Chunk* tail = root;
+      while (tail->next != nullptr)
+        tail = tail->next;
+      tail->next = extra;
+
+      check(debug_semispace_size() == ss2);
+    }
+
+    region_release(root);
+    heap::debug_check_empty();
+  }
+
+  /**
+   * Test 11: After GC collects garbage the semispace size is preserved
+   * (it does not shrink), and memory-used / object-count are correct.
+   * Also verifies that large objects are freed by GC when unreachable.
+   *
+   * Graph:  root -> a -> b
+   *                  |    |
+   *                 big1 big2
+   */
+  void test_sizes_after_gc()
+  {
+    auto* root = new (RegionType::SemiSpace) MixedNode;
+
+    {
+      UsingRegion rr(root);
+
+      // Allocate small objects via MixedNode chain.
+      auto* a = new MixedNode;
+      auto* b = new MixedNode;
+      root->child = a;
+      a->child = b;
+      check(debug_size() == 3);
+
+      // Allocate large objects and attach to the chain.
+      auto* big1 = new LargeObj;
+      auto* big2 = new LargeObj;
+      a->big = big1;
+      b->big = big2;
+
+      check(debug_size() == 5);          // root, a, b, big1, big2
+      check(debug_large_object_count() == 2);
+
+      // GC with all reachable — sizes should not change.
+      region_collect();
+      root = get_root<MixedNode>();
+      check(debug_size() == 5);
+      check(debug_large_object_count() == 2);
+
+      // Make b (and big2) unreachable: root->child is 'a' after GC.
+      root->child->child = nullptr; // a->child = nullptr, kills b and big2
+      region_collect();
+      root = get_root<MixedNode>();
+
+      check(debug_size() == 3);          // root, a, big1
+      check(debug_large_object_count() == 1); // only big1
+
+      // Make big1 unreachable.
+      root->child->big = nullptr; // a->big = nullptr
+      region_collect();
+      root = get_root<MixedNode>();
+
+      check(debug_size() == 2);          // root, a
+      check(debug_large_object_count() == 0);
+
+      // Semispace size should still be at least INITIAL (never shrinks).
+      check(debug_semispace_size() >= RegionSemiSpace::INITIAL_SEMISPACE_SIZE);
+    }
+
+    region_release(root);
+    heap::debug_check_empty();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Test runner
+  // ---------------------------------------------------------------------------
+
   void run_test()
   {
     std::cout << "=== SemiSpace GC Tests ===" << std::endl;
@@ -358,6 +641,22 @@ namespace semispace_gc
 
     std::cout << "Test 7: Alloc after GC..." << std::endl;
     test_alloc_after_gc();
+    std::cout << "  PASSED" << std::endl;
+
+    std::cout << "Test 8: Small objects in from-space..." << std::endl;
+    test_small_objects_in_fromspace();
+    std::cout << "  PASSED" << std::endl;
+
+    std::cout << "Test 9: Large objects in large list..." << std::endl;
+    test_large_objects_in_large_list();
+    std::cout << "  PASSED" << std::endl;
+
+    std::cout << "Test 10: Semispace grows when full..." << std::endl;
+    test_semispace_grows_when_full();
+    std::cout << "  PASSED" << std::endl;
+
+    std::cout << "Test 11: Sizes after GC..." << std::endl;
+    test_sizes_after_gc();
     std::cout << "  PASSED" << std::endl;
 
     std::cout << "=== All SemiSpace GC tests passed ===" << std::endl;

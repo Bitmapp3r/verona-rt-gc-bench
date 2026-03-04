@@ -45,11 +45,19 @@ namespace verona::rt
     template<RegionBase::IteratorType type>
     class iterator;
 
+    // Initial semi-space size: 1MB each.
+    static constexpr size_t INITIAL_SEMISPACE_SIZE = 1024 * 1024;
+
+    // Objects larger than this are placed in the large object list
+    // and are never copied during GC (they are marked/unmarked in place).
+    // This is fixed so behaviour doesn't change as the semispace grows.
+    static constexpr size_t LARGE_OBJECT_THRESHOLD = INITIAL_SEMISPACE_SIZE / 2;
+
   private:
     friend class Region;
 
-    // Semi-space size: 1MB each.
-    static constexpr size_t SEMISPACE_SIZE = 1024 * 1024;
+    /// Current size of each semi-space (grows dynamically).
+    size_t semispace_size;
 
     /// Pointer to from-space (where objects currently live).
     std::byte* from_space;
@@ -70,18 +78,38 @@ namespace verona::rt
     /// Uses Object::next pointers. Null-terminated.
     Object* large_objects = nullptr;
 
+    /// Delta from the most recent grow() call.  Consumed by
+    /// create_object() in region_api.h to update the entry point
+    /// in RegionContext (which grow() cannot access directly due
+    /// to header dependency order).
+    ptrdiff_t last_grow_delta_ = 0;
+
+    /// Thread-local from-space bounds used by forward_if_moved callback
+    /// during GC so it can distinguish forwarded from-space objects from
+    /// merely-marked large objects (both use the MARKED class tag).
+    static inline thread_local std::byte* gc_from_space_ = nullptr;
+    static inline thread_local size_t gc_from_size_ = 0;
+
+    /// Thread-local state used by adjust_for_grow callback during
+    /// from-space reallocation to adjust pointer fields by the address
+    /// delta between old and new from-space.
+    static inline thread_local std::byte* grow_old_from_ = nullptr;
+    static inline thread_local size_t grow_old_used_ = 0;
+    static inline thread_local ptrdiff_t grow_delta_ = 0;
+
     explicit RegionSemiSpace()
     : RegionBase(),
+      semispace_size(INITIAL_SEMISPACE_SIZE),
       from_space(nullptr),
       to_space(nullptr),
       alloc_ptr(nullptr),
       alloc_end(nullptr)
     {
       // Allocate two semi-spaces.
-      from_space = (std::byte*)heap::alloc(SEMISPACE_SIZE);
-      to_space = (std::byte*)heap::alloc(SEMISPACE_SIZE);
+      from_space = (std::byte*)heap::alloc(semispace_size);
+      to_space = (std::byte*)heap::alloc(semispace_size);
       alloc_ptr = from_space;
-      alloc_end = from_space + SEMISPACE_SIZE;
+      alloc_end = from_space + semispace_size;
     }
 
     static const Descriptor* desc()
@@ -107,6 +135,53 @@ namespace verona::rt
     size_t get_current_memory_used() const
     {
       return current_memory_used;
+    }
+
+    /**
+     * Return and clear the address delta from the most recent grow().
+     * If grow() was not called (or delta was zero), returns 0.
+     * Used by create_object() in region_api.h to update the entry
+     * point after an allocation that triggered growth.
+     **/
+    ptrdiff_t consume_grow_delta()
+    {
+      ptrdiff_t d = last_grow_delta_;
+      last_grow_delta_ = 0;
+      return d;
+    }
+
+    /**
+     * Returns the current size of each semi-space (from-space and to-space).
+     * This starts at INITIAL_SEMISPACE_SIZE and doubles when growth occurs.
+     **/
+    size_t get_semispace_size() const
+    {
+      return semispace_size;
+    }
+
+    /**
+     * Returns the number of objects in the large object list.
+     * For testing/debugging only.
+     **/
+    size_t get_large_object_count() const
+    {
+      size_t count = 0;
+      Object* lo = large_objects;
+      while (lo != nullptr)
+      {
+        count++;
+        lo = lo->get_next();
+      }
+      return count;
+    }
+
+    /**
+     * Returns the number of bytes currently used in from-space
+     * (i.e. how much has been bump-allocated).
+     **/
+    size_t get_fromspace_used() const
+    {
+      return static_cast<size_t>(alloc_ptr - from_space);
     }
 
     /**
@@ -201,7 +276,7 @@ namespace verona::rt
       std::byte* to_start = reg->to_space;
       std::byte* scan = to_start;
       std::byte* free_ptr = to_start;
-      std::byte* to_end = to_start + SEMISPACE_SIZE;
+      std::byte* to_end = to_start + reg->semispace_size;
 
       // Phase 1: Copy the iso root object to to-space.
       Object* new_iso = copy_object(o, free_ptr, to_end);
@@ -233,18 +308,12 @@ namespace verona::rt
             case Object::UNMARKED:
             {
               // Live object in from-space, not yet copied.
-              if (is_in_space(field, reg->from_space, SEMISPACE_SIZE))
+              if (is_in_space(field, reg->from_space, reg->semispace_size))
               {
                 Object* new_obj = copy_object(field, free_ptr, to_end);
-                if (new_obj == nullptr)
-                {
-                  // Out of to-space. This shouldn't happen if spaces are
-                  // equal size and we only copy live data. Abort.
-                  abort();
-                }
-                // Update the pointer in current's field to point to new
-                // location. The trace function pushed the raw pointer value;
-                // we let update_pointers handle pointer fixup below.
+                // to-space is the same size as from-space and we only
+                // copy live objects, so this should never fail.
+                assert(new_obj != nullptr);
               }
               else if (is_large_object(field, reg))
               {
@@ -283,6 +352,10 @@ namespace verona::rt
         scan += obj_size;
       }
 
+      // Set from-space context for forward_if_moved callback.
+      gc_from_space_ = reg->from_space;
+      gc_from_size_ = reg->semispace_size;
+
       // Phase 3: Update all pointers in to-space objects to new addresses.
       update_all_pointers(to_start, free_ptr, reg);
 
@@ -293,7 +366,7 @@ namespace verona::rt
         Object* lo = reg->large_objects;
         while (lo != nullptr)
         {
-          Object* next_lo = lo->get_next();
+          Object* next_lo = lo->get_next_any_mark();
           if (lo->get_class() == Object::MARKED)
           {
             // Live large object — unmark and update its pointers.
@@ -365,12 +438,12 @@ namespace verona::rt
 
       // Phase 6: Swap spaces.
       // Old from-space is now free. New from-space is to-space (with live
-      // data).
+      // data). Both spaces are always equal in size.
       std::byte* old_from = reg->from_space;
       reg->from_space = reg->to_space;
       reg->to_space = old_from;
       reg->alloc_ptr = free_ptr;
-      reg->alloc_end = reg->from_space + SEMISPACE_SIZE;
+      reg->alloc_end = reg->from_space + reg->semispace_size;
 
       // Update memory used: the live data is [from_space, alloc_ptr).
       reg->current_memory_used = 0;
@@ -414,7 +487,7 @@ namespace verona::rt
       size_t sz = snmalloc::bits::align_up(desc->size, Object::ALIGNMENT);
       current_memory_used += desc->size;
 
-      if (sz > SEMISPACE_SIZE / 2)
+      if (sz > LARGE_OBJECT_THRESHOLD)
       {
         // Large object: allocate via heap and add to large object list.
         void* p = heap::alloc(desc->size);
@@ -424,18 +497,167 @@ namespace verona::rt
         return o;
       }
 
-      // Check if we have space in from-space.
+      // Check if we have space in from-space; grow if needed.
       if (alloc_ptr + sz > alloc_end)
       {
-        // Out of space. In a real implementation we'd trigger GC or expand.
-        // For now, abort.
-        abort();
+        grow(sz);
       }
 
       void* p = alloc_ptr;
       alloc_ptr += sz;
       Object* o = Object::register_object(p, desc);
       o->init_next(nullptr);
+      return o;
+    }
+
+    /**
+     * Grow both semi-spaces so that at least `needed` additional bytes
+     * can be allocated in from-space. The size is doubled repeatedly
+     * until the requirement is met.
+     *
+     * After the raw byte copy, all pointer fields inside from-space
+     * objects (and large objects that reference from-space) are adjusted
+     * by the address delta so they remain valid. The entry point stored
+     * in RegionContext is also updated.
+     *
+     * Steps:
+     *   1. Compute a new size (at least double the current size).
+     *   2. Allocate a new from-space, copy existing live data, free old.
+     *   3. Allocate a new to-space, free old.
+     *   4. Update alloc_ptr / alloc_end.
+     *   5. Adjust all pointer fields by the address delta.
+     *   6. Update the entry point in RegionContext.
+     **/
+    void grow(size_t needed)
+    {
+      size_t used = static_cast<size_t>(alloc_ptr - from_space);
+      size_t new_size = semispace_size;
+      while (new_size < used + needed)
+        new_size *= 2;
+
+      // Even if used + needed fits, we still need to grow.
+      if (new_size == semispace_size)
+        new_size *= 2;
+
+      Logging::cout() << "SemiSpace grow: " << semispace_size << " -> "
+                      << new_size << Logging::endl;
+
+      // Remember old from-space address before freeing it.
+      std::byte* old_from = from_space;
+
+      // Grow from-space: allocate new, copy live data, free old.
+      std::byte* new_from = (std::byte*)heap::alloc(new_size);
+      std::memcpy(new_from, from_space, used);
+      heap::dealloc(from_space, semispace_size);
+
+      // Grow to-space: just reallocate (no live data in to-space).
+      heap::dealloc(to_space, semispace_size);
+      std::byte* new_to = (std::byte*)heap::alloc(new_size);
+
+      ptrdiff_t delta = new_from - old_from;
+
+      from_space = new_from;
+      to_space = new_to;
+      alloc_ptr = new_from + used;
+      alloc_end = new_from + new_size;
+      semispace_size = new_size;
+
+      // If the address changed, adjust every pointer that referred to
+      // the old from-space.
+      if (delta != 0)
+      {
+        // Set thread-local state for the adjust_for_grow callback.
+        grow_old_from_ = old_from;
+        grow_old_used_ = used;
+        grow_delta_ = delta;
+
+        // Walk all objects in the new from-space.
+        std::byte* p = new_from;
+        while (p < alloc_ptr)
+        {
+          Object* obj = Object::object_start(p);
+          size_t obj_size =
+            snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
+
+          // Fix the iso object's header: it contains (old_this | ISO).
+          // Re-initialise it so it stores (new_this | ISO).
+          if (obj->get_class() == Object::RegionMD::ISO)
+          {
+            obj->init_iso();
+            obj->set_region(this);
+          }
+
+          // Fix pointer fields via relocate if available.
+          auto* desc = obj->get_descriptor();
+          if (desc->relocate != nullptr)
+          {
+            desc->relocate(obj, adjust_for_grow);
+          }
+          else
+          {
+            // Fallback: scan body word-by-word (best-effort).
+            size_t body_size = obj->size() - sizeof(Object::Header);
+            auto* body = (Object**)obj;
+            size_t num_words = body_size / sizeof(Object*);
+
+            for (size_t i = 0; i < num_words; i++)
+            {
+              auto* word = (std::byte*)body[i];
+              if (word != nullptr && word >= old_from &&
+                  word < old_from + used)
+              {
+                body[i] = (Object*)(word + delta);
+              }
+            }
+          }
+
+          p += obj_size;
+        }
+
+        // Fix pointer fields in large objects that reference from-space.
+        Object* lo = large_objects;
+        while (lo != nullptr)
+        {
+          auto* desc = lo->get_descriptor();
+          if (desc->relocate != nullptr)
+          {
+            desc->relocate(lo, adjust_for_grow);
+          }
+          else
+          {
+            size_t body_size = lo->size() - sizeof(Object::Header);
+            auto* body = (Object**)lo;
+            size_t num_words = body_size / sizeof(Object*);
+
+            for (size_t i = 0; i < num_words; i++)
+            {
+              auto* word = (std::byte*)body[i];
+              if (word != nullptr && word >= old_from &&
+                  word < old_from + used)
+              {
+                body[i] = (Object*)(word + delta);
+              }
+            }
+          }
+          lo = lo->get_next();
+        }
+
+        // Store the delta so that the caller (create_object in
+        // region_api.h) can update RegionContext::get_entry_point().
+        last_grow_delta_ = delta;
+      }
+    }
+
+    /**
+     * Grow-time forwarding callback passed to Descriptor::relocate.
+     * Adjusts pointers that fell in the old from-space by the address
+     * delta; all other pointers are returned unchanged.
+     **/
+    static Object* adjust_for_grow(Object* o)
+    {
+      auto addr = (std::byte*)o;
+      if (addr >= grow_old_from_ && addr < grow_old_from_ + grow_old_used_)
+        return (Object*)(addr + grow_delta_);
       return o;
     }
 
@@ -453,8 +675,8 @@ namespace verona::rt
      **/
     static bool is_large_object(Object* o, RegionSemiSpace* reg)
     {
-      return !is_in_space(o, reg->from_space, SEMISPACE_SIZE) &&
-        !is_in_space(o, reg->to_space, SEMISPACE_SIZE);
+      return !is_in_space(o, reg->from_space, reg->semispace_size) &&
+        !is_in_space(o, reg->to_space, reg->semispace_size);
     }
 
     /**
@@ -513,10 +735,14 @@ namespace verona::rt
      * Forwarding callback passed to Descriptor::relocate.
      * Returns the new address if the object was moved (forwarded),
      * otherwise returns the original address unchanged.
+     *
+     * Only from-space objects can be forwarded.  Large objects that were
+     * merely marked as live (also using the MARKED tag) are NOT in
+     * from-space and must be left untouched.
      **/
     static Object* forward_if_moved(Object* o)
     {
-      if (is_forwarded(o))
+      if (is_in_space(o, gc_from_space_, gc_from_size_) && is_forwarded(o))
         return get_forwarding_target(o);
       return o;
     }
@@ -555,7 +781,7 @@ namespace verona::rt
       {
         Object* word = body[i];
         if (word != nullptr &&
-            is_in_space(word, reg->from_space, SEMISPACE_SIZE) &&
+            is_in_space(word, reg->from_space, reg->semispace_size) &&
             is_forwarded(word))
         {
           body[i] = get_forwarding_target(word);
@@ -652,8 +878,8 @@ namespace verona::rt
       }
 
       // Deallocate both semi-spaces.
-      heap::dealloc(from_space, SEMISPACE_SIZE);
-      heap::dealloc(to_space, SEMISPACE_SIZE);
+      heap::dealloc(from_space, semispace_size);
+      heap::dealloc(to_space, semispace_size);
 
       // Sweep the RememberedSet.
       RememberedSet::sweep();
