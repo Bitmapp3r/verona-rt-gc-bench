@@ -7,7 +7,6 @@
 
 #include <debug/logging.h>
 #include <functional>
-#include <test/measuretime.h>
 
 namespace verona::rt::api
 {
@@ -23,33 +22,12 @@ namespace verona::rt::api
       };
 
       RegionFrame* top;
-      std::function<void(uint64_t, RegionType, size_t, size_t)>* gc_callback;
 
     public:
       static RegionContext& get_region_context()
       {
         static thread_local RegionContext context;
         return context;
-      }
-
-      /**
-       * Set a GC measurement callback for this thread's region context.
-       * Callback receives: duration_ns, region_type, memory_bytes, object_count
-       * Pass nullptr to disable collection and return to default logging.
-       */
-      static void set_gc_callback(
-        std::function<void(uint64_t, RegionType, size_t, size_t)>* callback)
-      {
-        get_region_context().gc_callback = callback;
-      }
-
-      /**
-       * Get the current GC measurement callback, or nullptr if none is set.
-       */
-      static std::function<void(uint64_t, RegionType, size_t, size_t)>*
-      get_gc_callback()
-      {
-        return get_region_context().gc_callback;
       }
 
       static void push(Object* entry_point, RegionBase* region)
@@ -262,7 +240,7 @@ namespace verona::rt::api
     RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
 
     uint64_t duration_ns = m.get_time().count();
-    auto* callback = RegionContext::get_gc_callback();
+    auto* callback = get_gc_callback();
 
     if (callback != nullptr)
     {
@@ -367,7 +345,7 @@ namespace verona::rt::api
     }
 
     uint64_t duration_ns = m.get_time().count();
-    auto* callback = RegionContext::get_gc_callback();
+    auto* callback = get_gc_callback();
 
     if (callback != nullptr)
     {
@@ -418,7 +396,7 @@ namespace verona::rt::api
     Region::release(r);
 
     uint64_t duration_ns = m.get_time().count();
-    auto* callback = RegionContext::get_gc_callback();
+    auto* callback = get_gc_callback();
 
     if (callback != nullptr)
     {
