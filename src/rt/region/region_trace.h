@@ -65,6 +65,7 @@ namespace verona::rt
 
     // Memory usage in the region.
     size_t current_memory_used = 0;
+    size_t memory_at_last_gc = 0;
 
     // Compact representation of previous memory used as a sizeclass.
     snmalloc::sizeclass_t previous_memory_used;
@@ -234,6 +235,17 @@ namespace verona::rt
 
       RegionTrace* reg = get(prev);
       reg->swap_root_internal(prev, next);
+    } 
+
+    static bool gc_condition(Object* o) {
+      assert(o->debug_is_iso());
+      assert(is_trace_region(o->get_region()));
+
+      RegionTrace* reg = get(o);
+      size_t cur = reg->get_current_memory_used();
+      size_t last = reg->memory_at_last_gc;
+      Logging::cout() << "CHECKING GC CONDITION: cur=" << cur << ", last=" <<last << "\n";
+      return true;
     }
 
     /**
@@ -246,8 +258,9 @@ namespace verona::rt
       Logging::cout() << "Region GC called for: " << o << Logging::endl;
       assert(o->debug_is_iso());
       assert(is_trace_region(o->get_region()));
-
+      
       RegionTrace* reg = get(o);
+      
       ObjectStack f;
       ObjectStack collect;
 
@@ -259,6 +272,7 @@ namespace verona::rt
 
       reg->mark(o, f);
       reg->sweep(o, collect);
+      reg->memory_at_last_gc = reg->get_current_memory_used();
 
       // `collect` contains all the iso objects to unreachable subregions.
       // Since they are unreachable, we can just release them.

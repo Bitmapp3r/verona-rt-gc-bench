@@ -1,6 +1,5 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
-
 #include <cpp/when.h>
 #include <debug/harness.h>
 #include <verona.h>
@@ -40,7 +39,7 @@ class RegionOwner {
 public:
     Reg* reg;
     RegionOwner() {
-        reg = new (RegionType::Rc) Reg;
+        reg = new (RegionType::Trace) Reg;
         Reg* sub_reg = new (RegionType::Trace) Reg;
         reg->next = sub_reg;
         Logging::cout() << (void*)reg << " (" << reg << ")" <<  
@@ -61,13 +60,37 @@ void test() {
     when(cown) << [&](auto c) {
         Logging::cout() << "hello...?\n";
         //schedule_gc(c->reg);
-        UsingRegion(c->reg);
-        UsingRegion(c->reg->next);
+        {
+            UsingRegion rr(c->reg);
+            c->reg->root = new Node(0);
+            c->reg->root->next = new Node(1);
+        }
+        {
+            UsingRegion rr(c->reg->next);
+            c->reg->next->root = new Node(2);
+            c->reg->next->root->next = new Node(3);
+        }
     };
-    
-    when(cown) << [&](auto c) {
-        UsingRegion rr(c->reg->next);
-    };
+    for (int i = 0; i < 5; i++) {
+        when(cown) << [=](auto c) {
+            Logging::cout() << "second region start " << i << "\n";
+            {
+                UsingRegion rr(c->reg->next);
+                Node* temp = c->reg->next->root->next;
+                Node* old_root = c->reg->next->root;
+                temp->next = old_root;
+                old_root->next = nullptr;
+                c->reg->next->root = temp;
+                for (volatile int j = 0; j < 1000000; j++) {
+                    c->reg->next->root->id = j;
+                    snmalloc::Aal::pause();
+                }
+                yield();
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            }
+            Logging::cout() << "second region end " << i << "\n";
+        };
+    }
     
     //Cown::acquire(cown);
     Logging::cout() << "finished?\n";
@@ -75,10 +98,18 @@ void test() {
 
 int main(int argc, char** argv)
 {
-  SystematicTestHarness harness(argc, argv);
+    
   Logging::enable_logging();
+  size_t cores = 6;
+  Scheduler& sched = Scheduler::get();
+  sched.init(cores);
+  sched.set_fair(false);
 
-  harness.run(test);
+  test();
+  sched.run();
+  //  test();
+  puts("done");
+
 
   return 0;
 }

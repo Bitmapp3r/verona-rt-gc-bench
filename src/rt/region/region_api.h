@@ -123,59 +123,39 @@ namespace verona::rt::api
   template<typename T = Object>
   inline void region_release(Object* r);
 
-  /**
+
+/**
    * Open supplied region, and return entry point.
-   * Opening a region may fail if opening for collecting and already collecting
+   * Opening a region may fail if opening for collecting and already collecting or open.
    */
   inline bool open_region(Object* r, bool forWork = true)
   {
     assert(r->debug_is_iso());
     auto md = r->get_region();
-    // TODO refactor the VVVV code into functions that represent state transitions.
-    // forWork or for GC
+
     if (forWork) {
-      Logging::cout() << "opening region for work\n";
-      // Closed -> Open
-      auto closed = RegionBase::Closed;
-      md->state.compare_exchange_strong(closed, RegionBase::Open, std::memory_order_acquire);
-      //assert (closed != RegionBase::Open); // this would mean opening an already open region
-      if (closed == RegionBase::Collecting || closed == RegionBase::Open) {
-        auto expected = RegionBase::Closed;
-        while (!md->state.compare_exchange_weak(expected, RegionBase::Open, std::memory_order_acq_rel)) {
-          if (expected == RegionBase::Collecting) {
-            // Still GCing.
-            snmalloc::Aal::pause();
-            expected = RegionBase::Closed;
-          }
-          else if (expected == RegionBase::Open) {
-            // a different behaviour got scheduled before us. wait for them...
-            snmalloc::Aal::pause();
-            expected = RegionBase::Closed;
-          } else {
-
-          }
-        }
-        // we are in Open state
+      // Transition: Closed -> Open (Spin-wait until Closed)
+      auto expected = RegionBase::Closed;
+      
+      // std::memory_order_acquire ensures we see all memory writes from the thread that closed it.
+      while (!md->state.compare_exchange_weak(expected, RegionBase::Open, std::memory_order_acquire)) {
+        // If CAS fails, 'expected' is updated to the current state (Open or Collecting)
+        snmalloc::Aal::pause();
+        expected = RegionBase::Closed; // Reset for the next attempt
       }
+      // Successfully in Open state.
+      
     } else {
-      // opening for GC
-      // Closed -> Collecting
-      auto closed = RegionBase::Closed;
-      bool success = md->state.compare_exchange_strong(closed, RegionBase::Collecting, std::memory_order_acq_rel);
-      if (closed == RegionBase::Collecting) {
-        Logging::cout() << "someone is already collecting\n";
-        // TODO fail to open region and terminate the work
-        return false;
+      // Transition: Closed -> Collecting (Try exactly once)
+      auto expected = RegionBase::Closed;
+      
+      // If it's not Closed, we fail immediately and return false.
+      if (!md->state.compare_exchange_strong(expected, RegionBase::Collecting, std::memory_order_acquire)) {
+        Logging::cout() << "Failed to open for GC. State was: " 
+                        << (expected == RegionBase::Open ? "Open" : "Collecting") << "\n";
+        return false; 
       }
-      if (closed == RegionBase::Open) {
-        Logging::cout() << "someone started working in the region before we could GC\n";
-        // wait for them or fail and reschedule?
-        // ... for now we can just fail to open the region and let that task reschedule GC
-        // but really we should probably continue to try and do gc here. and make sure we don't reschedule gc.
-        // so scheduling gc should change state in the region that says we shouldn't schedule soon.
-        return false;
-      }
-
+      // Successfully in Collecting state.
     }
 
     RegionContext::push(r, md);
@@ -192,6 +172,8 @@ namespace verona::rt::api
     }
     return true;
   }
+
+
 
   void close_region(bool);
 
@@ -214,44 +196,60 @@ namespace verona::rt::api
     }
   };
   void region_collect();
+inline void schedule_gc(Object* entry) {
+    auto reg = entry->get_region();
+    
+    // Early exit if the region is already dead before we even schedule
+    if (!reg->isAlive.load(std::memory_order_relaxed)) {
+      return;
+    }
 
-  inline void schedule_gc(Object* entry) {
     auto gc_task = [entry]() {
-
       RegionBase* reg = entry->get_region();
-      Logging::cout() << "Running GC Task! on "<< reg << "and entry object:" << entry <<"\n";
 
-
-      // I'm pretty sure this memory ordering is stronger than necessary.
-      if (reg->isAlive.load(std::memory_order_acq_rel)) {
-        UsingRegion rr(entry, false);
-        if (!rr.isOpen) {
-          Logging::cout() << "GC Task aborted. someone else opened region\n";
-          return;
+      // Check if region was killed while we were sitting in the scheduler queue
+      if (reg->isAlive.load(std::memory_order_acquire)) {
+        
+        UsingRegion rr(entry, false); // false = forGC
+        
+        // rr.isOpen must be populated by the return value of open_region
+        if (rr.isOpen) {
+          region_collect();
+          // Region is automatically closed by rr destructor here
+        } else {
+          Logging::cout() << "GC Task aborted: Region was busy.\n";
         }
-        region_collect();
-        Logging::cout() << "GC Task finished\n";
       }
 
-      // if region_release has been called, isAlive is true and this call will
-      // physically free the region (if there's no other scheduled GC task).
+      // CRITICAL PATH: This always runs, preventing the "Early Return Leak"
       if (reg->task_dec()) {
-        //region_release(entry);
+        Logging::cout() << "Refcount hit 0 in GC Task. Physically releasing region.\n";
         region_physical_release(entry);
       }
     };
 
-    auto reg = entry->get_region();
-    if (!reg->isAlive.load()) {
-      return;
-    }
-
     auto* gc_behaviour = Behaviour::make(0, std::move(gc_task));
+    assert(gc_behaviour != nullptr);
     Work* gc_work = gc_behaviour->as_work();
-    Logging::cout() << "Scheduling GC Task\n";
+    assert(gc_work != nullptr);
 
-    entry->get_region()->task_inc();
-    Scheduler::schedule(gc_work);
+    Logging::cout() << "Scheduling GC Task\n";
+    
+    // Increment the refcount BEFORE handing it off to the scheduler
+    reg->task_inc();
+    Scheduler::schedule(gc_work, false);
+  }
+
+
+  inline bool check_gc_condition(Object* o) {
+    assert(o->debug_is_iso());
+    auto md = o->get_region();
+    switch (Region::get_type(md)) {
+      case RegionType::Trace:
+        return RegionTrace::gc_condition(o);
+      default:
+        return true;
+    }
   }
 
 
@@ -263,39 +261,37 @@ namespace verona::rt::api
     auto md = RegionContext::get_region();
     Object* entry = RegionContext::get_entry_point();
 
+    // std::memory_order_release ensures all our work inside the region is visible 
+    // to the next thread that acquires it.
     if (forWork) {
-      // Open -> Closed
-      auto open = RegionBase::Open;
-      bool success = md->state.compare_exchange_strong(open, RegionBase::Closed, std::memory_order_release);
-      assert(success); // this region better not be closed or collecting
+      auto expected = RegionBase::Open;
+      bool success = md->state.compare_exchange_strong(expected, RegionBase::Closed, std::memory_order_release);
+      assert(success && "Fatal: Region was not Open when trying to close for Work");
     } else {
-      // Collecting -> Closed
-      auto collecting = RegionBase::Collecting;
-      bool success = md->state.compare_exchange_strong(collecting, RegionBase::Closed, std::memory_order_acq_rel);
-      assert(success); // better not be closed or open
+      auto expected = RegionBase::Collecting;
+      bool success = md->state.compare_exchange_strong(expected, RegionBase::Closed, std::memory_order_release);
+      assert(success && "Fatal: Region was not Collecting when trying to close for GC");
     }
+
     switch (Region::get_type(md))
     {
       case RegionType::Trace:
       case RegionType::Arena:
         break;
       case RegionType::Rc:
-        ((RegionRc*)md)->close(RegionContext::get_entry_point());
+        ((RegionRc*)md)->close(entry);
         break;
       default:
         abort();
     }
-    // schedule GC
-    if (forWork) { // we schedule GC after doing a normal behaviour on the region
-      // this check stops us from scheduling GC after having done GC.
-      // and if we should GC (store some state in region)
 
+    // Schedule GC after a normal behavior if conditions are met
+    if (forWork && check_gc_condition(entry)) {
       schedule_gc(entry);
     }
+    
     RegionContext::pop();
   }
-
-
 
 
   /**
