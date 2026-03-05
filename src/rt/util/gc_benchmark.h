@@ -401,6 +401,7 @@ namespace verona::rt::api
     std::cout << "\n" << std::string(90, '=') << "\n";
     std::cout << "Benchmark Summary: " << test_name << "\n";
     std::cout << std::string(90, '=') << "\n";
+    std::cout << std::dec; // Ensure decimal output
     std::cout << "Number of runs: " << run_results.size() << "\n\n";
     std::cout << "Per-Run Results:\n";
     std::cout << std::left << std::setw(5) << "Run" << std::setw(14)
@@ -410,11 +411,12 @@ namespace verona::rt::api
               << "Peak Mem" << std::setw(10) << "Peak Obj\n";
     std::cout << std::string(92, '-') << "\n";
 
+    std::cout << std::fixed << std::setprecision(5);
     for (size_t i = 0; i < run_results.size(); i++)
     {
       const auto& r = run_results[i];
-      std::cout << std::left << std::setw(5) << (i + 1) << std::setw(14)
-                << (r.total_run_time_ns / 1000000) << std::setw(15)
+      std::cout << std::dec << std::left << std::setw(5) << (i + 1) << std::setw(14)
+                << (r.total_run_time_ns / 1000000.0) << std::setw(15)
                 << r.total_gc_time_ns << std::setw(8) << r.gc_call_count
                 << std::setw(12) << r.max_gc_time_ns << std::setw(14)
                 << format_bytes(r.avg_memory_bytes) << std::setw(14)
@@ -439,8 +441,8 @@ namespace verona::rt::api
     size_t overall_peak_obj = total_peak_obj / run_results.size();
     uint64_t overall_avg_run_time = total_run_time / run_results.size();
 
-    std::cout << std::left << std::setw(5) << "Avg" << std::setw(14)
-              << (overall_avg_run_time / 1000000) << std::setw(15)
+    std::cout << std::dec << std::left << std::setw(5) << "Avg" << std::setw(14)
+              << (overall_avg_run_time / 1000000.0) << std::setw(15)
               << get_average_gc_time() << std::setw(8)
               << (int)get_average_gc_calls() << std::setw(12) << "-"
               << std::setw(14) << format_bytes(overall_avg_mem) << std::setw(14)
@@ -452,7 +454,7 @@ namespace verona::rt::api
     uint64_t p99 = calculate_percentile(sorted_measurements, 99);
     double jitter = (p50 == 0) ? 0 : (double)(p99 - p50) / p50;
 
-    std::cout << std::fixed << std::setprecision(4);
+    std::cout << std::dec << std::fixed << std::setprecision(4);
     std::cout << "\nGC Timing:\n";
     std::cout << "  P50: " << p50 << " ns | P99: " << p99 << " ns\n";
     std::cout << "  Jitter (P99-P50)/P50: " << jitter << "\n";
