@@ -66,6 +66,9 @@ namespace verona::rt
     // Memory usage in the region.
     size_t current_memory_used = 0;
 
+    // Number of objects in the region (O(1) access).
+    size_t region_size = 0;
+
     // Compact representation of previous memory used as a sizeclass.
     snmalloc::sizeclass_t previous_memory_used;
 
@@ -102,6 +105,11 @@ namespace verona::rt
       return current_memory_used;
     }
 
+    size_t get_region_size() const
+    {
+      return region_size;
+    }
+
     /**
      * Creates a new trace region by allocating Object `o` of type `desc`. The
      * object is initialised as the Iso object for that region, and points to a
@@ -128,6 +136,7 @@ namespace verona::rt
       reg->init_next(o);
       o->init_iso();
       o->set_region(reg);
+      reg->region_size += 1;
 
       assert(Object::debug_is_aligned(o));
       return o;
@@ -164,6 +173,7 @@ namespace verona::rt
 
       // GC heuristics.
       reg->use_memory(desc->size);
+      reg->region_size += 1;
       return o;
     }
 
@@ -351,8 +361,9 @@ namespace verona::rt
       if (head != other)
         append(head, other->last_not_root);
 
-      // Update memory usage.
+      // Update memory usage and region size.
       current_memory_used += other->current_memory_used;
+      region_size += other->region_size;
 
       previous_memory_used = size_to_sizeclass_full(
         sizeclass_full_to_size(other->previous_memory_used) +
@@ -493,6 +504,7 @@ namespace verona::rt
           ExternalReferenceTable::erase(p);
 
         current_memory_used -= p->size();
+        region_size -= 1;
         p->dealloc();
       }
       else
@@ -581,6 +593,7 @@ namespace verona::rt
         {
           Object* q = gc.pop();
           current_memory_used -= q->size();
+          region_size -= 1;
           q->destructor();
           q->dealloc();
         }

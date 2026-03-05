@@ -117,19 +117,11 @@ namespace verona::rt
     {
       case RegionType::Trace:
         mem_before = ((RegionTrace*)r)->get_current_memory_used();
-        for (auto p : *((RegionTrace*)r))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
+        obj_before = ((RegionTrace*)r)->get_region_size();
         break;
       case RegionType::Arena:
         mem_before = ((RegionArena*)r)->get_current_memory_used();
-        for (auto p : *((RegionArena*)r))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
+        obj_before = ((RegionArena*)r)->get_region_size();
         break;
       case RegionType::Rc:
         mem_before = ((RegionRc*)r)->get_current_memory_used();
