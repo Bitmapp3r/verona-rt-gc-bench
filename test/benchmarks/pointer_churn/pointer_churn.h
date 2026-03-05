@@ -38,7 +38,7 @@ namespace pointer_churn
     GraphNode* edges[MAX_OUT_EDGES] = {nullptr};
     size_t id;
 
-    // Trace function for the trace GC
+    // Trace function for the trace and semispace GCs
     void trace(ObjectStack& st) const
     {
       for (size_t i = 0; i < MAX_OUT_EDGES; i++)
@@ -47,7 +47,28 @@ namespace pointer_churn
           st.push(edges[i]);
       }
     }
+
+    // Relocate function for the semispace GC - updates pointers after objects
+    // are copied to the new semispace
+    void relocate(Object* (*fwd)(Object*))
+    {
+      for (size_t i = 0; i < MAX_OUT_EDGES; i++)
+      {
+        if (edges[i] != nullptr)
+          edges[i] = (GraphNode*)fwd(edges[i]);
+      }
+    }
   };
+
+  /**
+   * Helper to re-read the root pointer from the region's entry point.
+   * Required for SemiSpace GC where objects move during collection/growth.
+   */
+  template<typename T = GraphNode>
+  inline T* get_root()
+  {
+    return (T*)RegionContext::get_entry_point();
+  }
 
   /**
    * Helper function to find all nodes reachable from root via DFS.
@@ -105,6 +126,16 @@ namespace pointer_churn
       std::vector<GraphNode*> reachableNodes;
       {
         UsingRegion ur(root);
+
+        // For SemiSpace, pre-reserve capacity so that allocating the initial
+        // chain does not trigger a grow (which would invalidate pointers).
+        if constexpr (RT == RegionType::SemiSpace)
+        {
+          region_ensure_available(
+            (NUM_NODES - 1) * vsizeof<GraphNode>);
+          root = get_root();
+        }
+
         GraphNode* prevNode = root;
         for (size_t i = 0; i < NUM_NODES - 1; i++)
         {
@@ -202,6 +233,12 @@ namespace pointer_churn
             if constexpr (RT != RegionType::Arena)
             {
               region_collect(); // Collect garbage for non-arena regions
+              // SemiSpace GC copies objects to a new space, invalidating
+              // all local pointers. Re-read root from the entry point.
+              if constexpr (RT == RegionType::SemiSpace)
+              {
+                root = get_root();
+              }
             }
             reachableNodes.clear();
             find_reachable_nodes(root, reachableNodes);
@@ -217,6 +254,10 @@ namespace pointer_churn
         if constexpr (RT != RegionType::Arena)
         {
           region_collect();
+          if constexpr (RT == RegionType::SemiSpace)
+          {
+            root = get_root();
+          }
         }
         reachableNodes.clear();
         find_reachable_nodes(root, reachableNodes);
@@ -252,12 +293,20 @@ namespace pointer_churn
       test_pointer_churn<RegionType::Arena>(
         num_nodes, num_mutations, inputSeed);
     }
-    else
+    else if (gc_type == "rc")
     {
       std::cout << "\n=========================================\n";
       std::cout << "|  Pointer Churn Test: RC GC            |\n";
       std::cout << "=========================================\n";
       test_pointer_churn<RegionType::Rc>(num_nodes, num_mutations, inputSeed);
+    }
+    else if (gc_type == "semispace")
+    {
+      std::cout << "\n=========================================\n";
+      std::cout << "|  Pointer Churn Test: SemiSpace GC     |\n";
+      std::cout << "=========================================\n";
+      test_pointer_churn<RegionType::SemiSpace>(
+        num_nodes, num_mutations, inputSeed);
     }
   }
 }
