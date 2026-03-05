@@ -66,6 +66,7 @@ namespace verona::rt
     // Memory usage in the region.
     size_t current_memory_used = 0;
     size_t memory_at_last_gc = 0;
+    size_t closes_since_gc = 0;
 
     // Compact representation of previous memory used as a sizeclass.
     snmalloc::sizeclass_t previous_memory_used;
@@ -242,10 +243,24 @@ namespace verona::rt
       assert(is_trace_region(o->get_region()));
 
       RegionTrace* reg = get(o);
+      std::cout << "Region: " << reg << ", ";
+      if (reg->closes_since_gc > 3) {
+        std::cout << "GC CONDITION TRUE 1 " << reg->closes_since_gc << "\n";
+        return true;
+      }
       size_t cur = reg->get_current_memory_used();
       size_t last = reg->memory_at_last_gc;
-      Logging::cout() << "CHECKING GC CONDITION: cur=" << cur << ", last=" <<last << "\n";
-      return true;
+      Logging::cout() << "CHECKING GC CONDITION: cur=" << cur << ", last=" << last << "\n";
+      if (cur - last > 1000) {
+        std::cout << "GC CONDITION TRUE 2 " << reg->closes_since_gc << "\n";
+        reg->closes_since_gc = 0;
+        return true;
+      }
+  
+      reg->closes_since_gc++;
+      std::cout << "GC CONDITION FALSE 3 " << reg->closes_since_gc << "\n";
+  
+      return false;
     }
 
     /**

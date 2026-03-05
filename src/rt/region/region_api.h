@@ -196,6 +196,9 @@ namespace verona::rt::api
     }
   };
   void region_collect();
+
+inline bool check_gc_condition(Object* o);
+
 inline void schedule_gc(Object* entry) {
     auto reg = entry->get_region();
     
@@ -206,7 +209,9 @@ inline void schedule_gc(Object* entry) {
 
     auto gc_task = [entry]() {
       RegionBase* reg = entry->get_region();
-
+      if (!check_gc_condition(entry)) {
+        goto task_dec;
+      }
       // Check if region was killed while we were sitting in the scheduler queue
       if (reg->isAlive.load(std::memory_order_acquire)) {
         
@@ -221,6 +226,7 @@ inline void schedule_gc(Object* entry) {
         }
       }
 
+task_dec:
       // CRITICAL PATH: This always runs, preventing the "Early Return Leak"
       if (reg->task_dec()) {
         Logging::cout() << "Refcount hit 0 in GC Task. Physically releasing region.\n";
