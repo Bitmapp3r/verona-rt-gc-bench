@@ -2,6 +2,9 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include <atomic>
+#include <functional>
+
 #include "../object/object.h"
 #include "externalreference.h"
 #include "rememberedset.h"
@@ -27,6 +30,7 @@ namespace verona::rt
     SemiSpace,
   };
 
+
   class RegionBase : public Object,
                      public ExternalReferenceTable,
                      public RememberedSet
@@ -45,9 +49,38 @@ namespace verona::rt
       AllObjects,
     };
 
-    RegionBase() : Object() {}
+    enum ConcurrentState 
+    {
+      Open, 
+      Closed,
+      Collecting
+    };
 
-  private:
+    std::atomic<ConcurrentState> state{Closed};
+    std::atomic<size_t> owners{1};
+    std::atomic<bool> isAlive{true};
+
+    RegionBase() : Object() {
+      //void* space = heap::alloc(sizeof(std::atomic<RegReleaseControl>));
+      //release_control = new (space) std::atomic<RegReleaseControl>();
+    }
+
+    inline bool task_dec() { 
+      int old_refcount = owners.fetch_sub(1, std::memory_order_acq_rel);
+      Logging::cout() << "in task_dec: old_refcount = " << old_refcount << "\n";
+      if (old_refcount == 1) {
+        // actually free the region
+        return true;
+      }
+      return false;
+    }
+    inline void task_inc() {
+      owners.fetch_add(1, std::memory_order_relaxed);
+      Logging::cout() << "task_inc\n";
+    }
+    
+    private:
+    
     inline void dealloc()
     {
       ExternalReferenceTable::dealloc();
@@ -55,5 +88,21 @@ namespace verona::rt
       Object::dealloc();
     }
   };
+
+  // Callback for region GC/release operations
+  inline thread_local std::function<void(uint64_t, RegionType, size_t, size_t)>* 
+    gc_callback = nullptr;
+
+  inline void set_gc_callback(
+    std::function<void(uint64_t, RegionType, size_t, size_t)>* callback)
+  {
+    gc_callback = callback;
+  }
+
+  inline std::function<void(uint64_t, RegionType, size_t, size_t)>*
+  get_gc_callback()
+  {
+    return gc_callback;
+  }
 
 } // namespace verona::rt

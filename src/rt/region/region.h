@@ -8,6 +8,7 @@
 #include "region_rc.h"
 #include "region_semispace.h"
 #include "region_trace.h"
+#include <test/measuretime.h>
 
 namespace verona::rt
 {
@@ -99,6 +100,64 @@ namespace verona::rt
   {
     using T = RegionSemiSpace;
   };
+  /**
+   * Helper to capture stats, run an action, and report metrics.
+   */
+  template<typename Action>
+  inline void with_region_stats(RegionBase* r, const char* op_name, Action&& action)
+  {
+    RegionType type;
+    if (RegionTrace::is_trace_region(r))
+      type = RegionType::Trace;
+    else if (RegionArena::is_arena_region(r))
+      type = RegionType::Arena;
+    else if (RegionRc::is_rc_region(r))
+      type = RegionType::Rc;
+    else
+      abort();
+
+    // Capture memory stats before operation
+    size_t mem_before = 0;
+    size_t obj_before = 0;
+    switch (type)
+    {
+      case RegionType::Trace:
+        mem_before = ((RegionTrace*)r)->get_current_memory_used();
+        for (auto p : *((RegionTrace*)r))
+        {
+          UNUSED(p);
+          obj_before++;
+        }
+        break;
+      case RegionType::Arena:
+        mem_before = ((RegionArena*)r)->get_current_memory_used();
+        for (auto p : *((RegionArena*)r))
+        {
+          UNUSED(p);
+          obj_before++;
+        }
+        break;
+      case RegionType::Rc:
+        mem_before = ((RegionRc*)r)->get_current_memory_used();
+        obj_before = ((RegionRc*)r)->get_region_size();
+        break;
+    }
+
+    MeasureTime m(true);
+    action();
+    uint64_t duration_ns = m.get_time().count();
+
+    // Report via callback if set
+    if (get_gc_callback() != nullptr)
+    {
+      (*get_gc_callback())(duration_ns, type, mem_before, obj_before);
+    }
+    else
+    {
+      Logging::cout() << op_name << " time: " << duration_ns << " ns"
+                      << Logging::endl;
+    }
+  }
 
   class Region
   {
@@ -133,13 +192,15 @@ namespace verona::rt
     {
       assert(o->debug_is_iso() || o->is_opened());
       ObjectStack collect;
+      Logging::cout() << "release on object: " << o << "\n";
       Region::release_internal(o, collect);
 
       while (!collect.empty())
-      {
+      { 
+        Logging::cout() << "hasdkfasdf\n";
         o = collect.pop();
         assert(o->debug_is_iso());
-        Region::release_internal(o, collect);
+        Region::logical_release_internal(o, collect);
       }
     }
 
@@ -156,6 +217,21 @@ namespace verona::rt
     }
 
   private:
+
+    static void logical_release_internal(Object* o, ObjectStack& collect) 
+    {
+      Logging::cout() << "logical release internal on object; " <<  o << "\n";
+      auto r = o->get_region();
+      r->isAlive.store(false, std::memory_order_acq_rel);
+
+      if (r->task_dec()) {
+        Logging::cout() << "physically releasing sub region\n";
+        with_region_stats(r, "Subregion release", [&]() {
+          release_internal(o, collect);
+        });
+      } 
+    }
+
     /**
      * Internal method for releasing and deallocating regions, that takes
      * a worklist (represented by `f` and `collect`).
@@ -164,6 +240,7 @@ namespace verona::rt
      **/
     static void release_internal(Object* o, ObjectStack& collect)
     {
+      Logging::cout() << "release internal on object: " << o << "\n"; 
       auto r = o->get_region();
       switch (Region::get_type(r))
       {

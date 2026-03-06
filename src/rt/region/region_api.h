@@ -5,9 +5,10 @@
 #include "freeze.h"
 #include "region.h"
 
+#include "../cpp/behaviour.h"
 #include <debug/logging.h>
 #include <functional>
-#include <test/measuretime.h>
+#include <atomic>
 
 namespace verona::rt::api
 {
@@ -23,33 +24,12 @@ namespace verona::rt::api
       };
 
       RegionFrame* top;
-      std::function<void(uint64_t, RegionType, size_t, size_t)>* gc_callback;
 
     public:
       static RegionContext& get_region_context()
       {
         static thread_local RegionContext context;
         return context;
-      }
-
-      /**
-       * Set a GC measurement callback for this thread's region context.
-       * Callback receives: duration_ns, region_type, memory_bytes, object_count
-       * Pass nullptr to disable collection and return to default logging.
-       */
-      static void set_gc_callback(
-        std::function<void(uint64_t, RegionType, size_t, size_t)>* callback)
-      {
-        get_region_context().gc_callback = callback;
-      }
-
-      /**
-       * Get the current GC measurement callback, or nullptr if none is set.
-       */
-      static std::function<void(uint64_t, RegionType, size_t, size_t)>*
-      get_gc_callback()
-      {
-        return get_region_context().gc_callback;
       }
 
       static void push(Object* entry_point, RegionBase* region)
@@ -83,6 +63,48 @@ namespace verona::rt::api
 
   using namespace internal;
 
+  /*
+  regions can be in one 3 states: Open. Closed, Collecting
+  4 state transitions:
+  normal behaviours:
+  Closed -> Open
+  Open -> Closed
+
+
+  GCing:
+  Closed -> Collecting
+  Collecting -> Closed
+
+  when closing a region, we schedule a gc task
+  in future, we'll only schedule when the region size goes above a threshold.
+  and we'll only haev 1 gc task in flight for each region.
+
+  race conditions:
+  open region <---> gc task
+
+  open region is used by both the normal behaviours and gc task.
+  same with close region
+
+
+
+  issue:
+  race condition between region_release and gc task
+  TOCTTOA bug
+  basically we don't wanna gc if the region is dead
+  in gc task:
+  if region not dead:
+    open region for garbage collection
+
+  ^^^ between those 2 lines, the region may be freed. the fix? reference count the region and the final
+  user of the region will delete it. this may cause a redundant garbage collection call. but thats the best we can do.
+
+  we changed code in region_api,
+
+  we spawn the behaviour using behavior api
+
+  for now open region may fail if we're in the wrong state. may change it to either spin loop or fail but reschedule.
+  for opening a region for work we can't really reschedule...have to spin.
+  */
   /**
    * Check if pointer points to a new region.
    */
@@ -95,13 +117,47 @@ namespace verona::rt::api
     return RegionContext::get_entry_point() != o;
   }
 
-  /**
+  template<typename T = Object>
+  void region_physical_release(Object* r);
+
+  template<typename T = Object>
+  inline void region_release(Object* r);
+
+
+/**
    * Open supplied region, and return entry point.
+   * Opening a region may fail if opening for collecting and already collecting or open.
    */
-  inline void open_region(Object* r)
+  inline bool open_region(Object* r, bool forWork = true)
   {
     assert(r->debug_is_iso());
     auto md = r->get_region();
+
+    if (forWork) {
+      // Transition: Closed -> Open (Spin-wait until Closed)
+      auto expected = RegionBase::Closed;
+      
+      // std::memory_order_acquire ensures we see all memory writes from the thread that closed it.
+      while (!md->state.compare_exchange_weak(expected, RegionBase::Open, std::memory_order_acquire)) {
+        // If CAS fails, 'expected' is updated to the current state (Open or Collecting)
+        snmalloc::Aal::pause();
+        expected = RegionBase::Closed; // Reset for the next attempt
+      }
+      // Successfully in Open state.
+      
+    } else {
+      // Transition: Closed -> Collecting (Try exactly once)
+      auto expected = RegionBase::Closed;
+      
+      // If it's not Closed, we fail immediately and return false.
+      if (!md->state.compare_exchange_strong(expected, RegionBase::Collecting, std::memory_order_acquire)) {
+        Logging::cout() << "Failed to open for GC. State was: " 
+                        << (expected == RegionBase::Open ? "Open" : "Collecting") << "\n";
+        return false; 
+      }
+      // Successfully in Collecting state.
+    }
+
     RegionContext::push(r, md);
     switch (Region::get_type(md))
     {
@@ -115,14 +171,115 @@ namespace verona::rt::api
       default:
         abort();
     }
+    return true;
   }
+
+
+
+  void close_region(bool);
+
+  class UsingRegion // GCing requires opening the region.
+  {
+    bool forWork;
+  public:
+    bool isOpen = false;
+    UsingRegion(Object* r, bool forWork = true) : forWork(forWork)
+    {
+      isOpen = open_region(r, forWork);
+    }
+
+    ~UsingRegion()
+    {
+      // TODO: Check if we are in the same region as the one we opened. <--- not my TODO.
+      if (isOpen) {
+        close_region(forWork);
+      }
+    }
+  };
+  void region_collect();
+
+inline bool check_gc_condition(Object* o);
+
+inline void schedule_gc(Object* entry) {
+    auto reg = entry->get_region();
+    
+    // Early exit if the region is already dead before we even schedule
+    if (!reg->isAlive.load(std::memory_order_relaxed)) {
+      return;
+    }
+
+    auto gc_task = [entry]() {
+      RegionBase* reg = entry->get_region();
+      if (!check_gc_condition(entry)) {
+        goto task_dec;
+      }
+      // Check if region was killed while we were sitting in the scheduler queue
+      if (reg->isAlive.load(std::memory_order_acquire)) {
+        
+        UsingRegion rr(entry, false); // false = forGC
+        
+        // rr.isOpen must be populated by the return value of open_region
+        if (rr.isOpen) {
+          region_collect();
+          // Region is automatically closed by rr destructor here
+        } else {
+          Logging::cout() << "GC Task aborted: Region was busy.\n";
+        }
+      }
+
+task_dec:
+      // CRITICAL PATH: This always runs, preventing the "Early Return Leak"
+      if (reg->task_dec()) {
+        Logging::cout() << "Refcount hit 0 in GC Task. Physically releasing region.\n";
+        region_physical_release(entry);
+      }
+    };
+
+    auto* gc_behaviour = Behaviour::make(0, std::move(gc_task));
+    assert(gc_behaviour != nullptr);
+    Work* gc_work = gc_behaviour->as_work();
+    assert(gc_work != nullptr);
+
+    Logging::cout() << "Scheduling GC Task\n";
+    
+    // Increment the refcount BEFORE handing it off to the scheduler
+    reg->task_inc();
+    Scheduler::schedule(gc_work, false);
+  }
+
+
+  inline bool check_gc_condition(Object* o) {
+    assert(o->debug_is_iso());
+    auto md = o->get_region();
+    switch (Region::get_type(md)) {
+      case RegionType::Trace:
+        return RegionTrace::gc_condition(o);
+      default:
+        return true;
+    }
+  }
+
 
   /**
    * Close current region
    */
-  inline void close_region()
+  inline void close_region(bool forWork = true)
   {
     auto md = RegionContext::get_region();
+    Object* entry = RegionContext::get_entry_point();
+
+    // std::memory_order_release ensures all our work inside the region is visible 
+    // to the next thread that acquires it.
+    if (forWork) {
+      auto expected = RegionBase::Open;
+      bool success = md->state.compare_exchange_strong(expected, RegionBase::Closed, std::memory_order_release);
+      assert(success && "Fatal: Region was not Open when trying to close for Work");
+    } else {
+      auto expected = RegionBase::Collecting;
+      bool success = md->state.compare_exchange_strong(expected, RegionBase::Closed, std::memory_order_release);
+      assert(success && "Fatal: Region was not Collecting when trying to close for GC");
+    }
+
     switch (Region::get_type(md))
     {
       case RegionType::Trace:
@@ -130,28 +287,20 @@ namespace verona::rt::api
       case RegionType::SemiSpace:
         break;
       case RegionType::Rc:
-        ((RegionRc*)md)->close(RegionContext::get_entry_point());
+        ((RegionRc*)md)->close(entry);
         break;
       default:
         abort();
     }
+
+    // Schedule GC after a normal behavior if conditions are met
+    if (forWork && check_gc_condition(entry)) {
+      schedule_gc(entry);
+    }
+    
     RegionContext::pop();
   }
 
-  class UsingRegion
-  {
-  public:
-    UsingRegion(Object* r)
-    {
-      open_region(r);
-    }
-
-    ~UsingRegion()
-    {
-      // TODO: Check if we are in the same region as the one we opened.
-      close_region();
-    }
-  };
 
   /**
    * Freeze region
@@ -287,29 +436,9 @@ namespace verona::rt::api
   {
     assert(Region::get_type(RegionContext::get_region()) == RegionType::Rc);
 
-    // Capture memory before operation for metrics
-    size_t mem_before =
-      ((RegionRc*)RegionContext::get_region())->get_current_memory_used();
-    size_t obj_before =
-      ((RegionRc*)RegionContext::get_region())->get_region_size();
-
-    MeasureTime m(true);
-    RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
-
-    uint64_t duration_ns = m.get_time().count();
-    auto* callback = RegionContext::get_gc_callback();
-
-    if (callback != nullptr)
-    {
-      // Route measurement to callback (for testing/metrics gathering)
-      (*callback)(duration_ns, RegionType::Rc, mem_before, obj_before);
-    }
-    else
-    {
-      // Default logging behavior
-      Logging::cout() << "Decref time: " << duration_ns << " ns"
-                      << Logging::endl;
-    }
+    with_region_stats(RegionContext::get_region(), "Decref", [&]() {
+      RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
+    });
   }
 
   template<typename T = Object>
@@ -356,147 +485,45 @@ namespace verona::rt::api
 
   inline void region_collect()
   {
-    RegionType type = Region::get_type(RegionContext::get_region());
+    RegionBase* r = RegionContext::get_region();
+    Object* entry = RegionContext::get_entry_point();
 
-    // Capture memory before GC for metrics
-    size_t mem_before = 0;
-    size_t obj_before = 0;
-    switch (type)
-    {
-      case RegionType::Trace:
-        mem_before = ((RegionTrace*)RegionContext::get_region())
-                       ->get_current_memory_used();
-        for (auto p : *((RegionTrace*)RegionContext::get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-      case RegionType::Arena:
-        mem_before = ((RegionArena*)RegionContext::get_region())
-                       ->get_current_memory_used();
-        for (auto p : *((RegionArena*)RegionContext::get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-      case RegionType::Rc:
-        mem_before =
-          ((RegionRc*)RegionContext::get_region())->get_current_memory_used();
-        obj_before =
-          ((RegionRc*)RegionContext::get_region())->get_region_size();
-        break;
-      case RegionType::SemiSpace:
-        mem_before = ((RegionSemiSpace*)RegionContext::get_region())
-                       ->get_current_memory_used();
-        for (auto p : *((RegionSemiSpace*)RegionContext::get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-    }
-
-    MeasureTime m(true);
-
-    switch (type)
-    {
-      case RegionType::Trace:
-        // Other roots?
-        RegionTrace::gc(RegionContext::get_entry_point());
-        break;
-      case RegionType::Arena:
-        // Nothing to collect here!
-        break;
-      case RegionType::Rc:
-        RegionRc::gc_cycles(
-          RegionContext::get_entry_point(),
-          (RegionRc*)RegionContext::get_region());
-        break;
-      case RegionType::SemiSpace:
+    with_region_stats(r, "Region collect", [&]() {
+      switch (Region::get_type(r))
       {
-        auto* new_entry = RegionSemiSpace::gc(
-          RegionContext::get_entry_point(),
-          (RegionSemiSpace*)RegionContext::get_region());
-        RegionContext::get_entry_point() = new_entry;
-        break;
+        case RegionType::Trace:
+          RegionTrace::gc(entry);
+          break;
+        case RegionType::Arena:
+          // Nothing to collect here!
+          break;
+        case RegionType::Rc:
+          RegionRc::gc_cycles(entry, (RegionRc*)r);
+          break;
       }
-    }
-
-    uint64_t duration_ns = m.get_time().count();
-    auto* callback = RegionContext::get_gc_callback();
-
-    if (callback != nullptr)
-    {
-      // Route measurement to callback (for testing/metrics gathering)
-      (*callback)(duration_ns, type, mem_before, obj_before);
-    }
-    else
-    {
-      // Default logging behavior
-      Logging::cout() << "Region GC/Dealloc time: " << duration_ns << " ns"
-                      << Logging::endl;
-    }
+    });
   }
 
-  template<typename T = Object>
+
+  template<typename T>
+  inline void region_physical_release(Object* r) {
+    Logging::cout() << "reached region_physical_release on object: " << r << "\n";
+    with_region_stats(r->get_region(), "Region release", [&]() {
+      Region::release(r);
+    });
+  }
+
+
+  template<typename T>
   inline void region_release(Object* r)
   {
-    RegionType type = Region::get_type(r->get_region());
+    Logging::cout() << "reached region_release on object " << r << "\n";
+    RegionBase* reg = r->get_region();
+    reg->isAlive.store(false, std::memory_order_release);
 
-    // Capture memory before release for metrics
-    size_t mem_before = 0;
-    size_t obj_before = 0;
-    switch (type)
-    {
-      case RegionType::Trace:
-        mem_before = ((RegionTrace*)r->get_region())->get_current_memory_used();
-        for (auto p : *((RegionTrace*)r->get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-      case RegionType::Arena:
-        mem_before = ((RegionArena*)r->get_region())->get_current_memory_used();
-        for (auto p : *((RegionArena*)r->get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-      case RegionType::Rc:
-        mem_before = ((RegionRc*)r->get_region())->get_current_memory_used();
-        obj_before = ((RegionRc*)r->get_region())->get_region_size();
-        break;
-      case RegionType::SemiSpace:
-        mem_before =
-          ((RegionSemiSpace*)r->get_region())->get_current_memory_used();
-        for (auto p : *((RegionSemiSpace*)r->get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-    }
-
-    MeasureTime m(true);
-    Region::release(r);
-
-    uint64_t duration_ns = m.get_time().count();
-    auto* callback = RegionContext::get_gc_callback();
-
-    if (callback != nullptr)
-    {
-      // Route measurement to callback (for testing/metrics gathering)
-      (*callback)(duration_ns, type, mem_before, obj_before);
-    }
-    else
-    {
-      // Default logging behavior
-      Logging::cout() << "Region release time: " << duration_ns << " ns"
-                      << Logging::endl;
+    if (reg->task_dec()) {
+      //Logging::cout() << "physically releasing region\n";
+      region_physical_release(r);
     }
   }
 

@@ -65,6 +65,8 @@ namespace verona::rt
 
     // Memory usage in the region.
     size_t current_memory_used = 0;
+    size_t memory_at_last_gc = 0;
+    size_t closes_since_gc = 0;
 
     // Compact representation of previous memory used as a sizeclass.
     snmalloc::sizeclass_t previous_memory_used;
@@ -234,6 +236,31 @@ namespace verona::rt
 
       RegionTrace* reg = get(prev);
       reg->swap_root_internal(prev, next);
+    } 
+
+    static bool gc_condition(Object* o) {
+      assert(o->debug_is_iso());
+      assert(is_trace_region(o->get_region()));
+
+      RegionTrace* reg = get(o);
+      std::cout << "Region: " << reg << ", ";
+      if (reg->closes_since_gc > 3) {
+        std::cout << "GC CONDITION TRUE 1 " << reg->closes_since_gc << "\n";
+        return true;
+      }
+      size_t cur = reg->get_current_memory_used();
+      size_t last = reg->memory_at_last_gc;
+      Logging::cout() << "CHECKING GC CONDITION: cur=" << cur << ", last=" << last << "\n";
+      if (cur - last > 1000) {
+        std::cout << "GC CONDITION TRUE 2 " << reg->closes_since_gc << "\n";
+        reg->closes_since_gc = 0;
+        return true;
+      }
+  
+      reg->closes_since_gc++;
+      std::cout << "GC CONDITION FALSE 3 " << reg->closes_since_gc << "\n";
+  
+      return false;
     }
 
     /**
@@ -246,8 +273,9 @@ namespace verona::rt
       Logging::cout() << "Region GC called for: " << o << Logging::endl;
       assert(o->debug_is_iso());
       assert(is_trace_region(o->get_region()));
-
+      
       RegionTrace* reg = get(o);
+      
       ObjectStack f;
       ObjectStack collect;
 
@@ -259,6 +287,7 @@ namespace verona::rt
 
       reg->mark(o, f);
       reg->sweep(o, collect);
+      reg->memory_at_last_gc = reg->get_current_memory_used();
 
       // `collect` contains all the iso objects to unreachable subregions.
       // Since they are unreachable, we can just release them.
