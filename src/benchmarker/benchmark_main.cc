@@ -104,9 +104,6 @@ int main(int argc, char** argv)
   std::cout << "\nRunning benchmark: " << lib_path << "\n";
   SystematicTestHarness harness(new_argc, new_argv);
   GCBenchmark benchmark;
-
-  uint64_t wall_time = 0;
-  benchmark.wall_time_ns_out = &wall_time;
 #ifdef PLATFORM_WINDOWS
   using CallbackSetter = void (*)(void (*)(uint64_t, verona::rt::RegionType, size_t, size_t));
   auto set_callback = reinterpret_cast<CallbackSetter>(LIB_SYM(handle, "set_gc_callback"));
@@ -114,7 +111,7 @@ int main(int argc, char** argv)
   auto test_wrapper = [&]() {
     if (set_callback)
     {
-      auto* local_callback = verona::rt::api::internal::RegionContext::get_gc_callback();
+      auto* local_callback = verona::rt::get_gc_callback();
       if (local_callback)
       {
         static std::function<void(uint64_t, verona::rt::RegionType, size_t, size_t)>* current = nullptr;
@@ -124,16 +121,14 @@ int main(int argc, char** argv)
         });
       }
     }
-    harness.run(benchmark.timed([&]() { entry(new_argc, new_argv); }));
+    harness.run([&]() { entry(new_argc, new_argv); });
     if (set_callback) set_callback(nullptr);
   };
   
   benchmark.run_benchmark(test_wrapper, runs, warmup_runs, lib_path);
 #else
   benchmark.run_benchmark(
-    [&]() {
-      harness.run(benchmark.timed([&]() { entry(new_argc, new_argv); }));
-    },
+    [&]() { harness.run([&]() { entry(new_argc, new_argv); }); },
     runs,
     warmup_runs,
     lib_path);
