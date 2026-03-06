@@ -5,6 +5,7 @@
 #include <region/region_api.h>
 #include <test/opt.h>
 
+
 #if defined(_WIN32) || defined(_WIN64)
 #  define PLATFORM_WINDOWS
 #endif
@@ -114,7 +115,7 @@ int main(int argc, char** argv)
   auto test_wrapper = [&]() {
     if (set_callback)
     {
-      auto* local_callback = verona::rt::api::internal::RegionContext::get_gc_callback();
+      auto* local_callback = verona::rt::get_gc_callback();
       if (local_callback)
       {
         static std::function<void(uint64_t, verona::rt::RegionType, size_t, size_t)>* current = nullptr;

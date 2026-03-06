@@ -19,11 +19,11 @@ extern "C" EXPORT void set_gc_callback(void (*callback)(uint64_t, verona::rt::Re
   if (callback)
   {
     func = callback;
-    RegionContext::set_gc_callback(&func);
+    verona::rt::set_gc_callback(&func);
   }
   else
   {
-    RegionContext::set_gc_callback(nullptr);
+    verona::rt::set_gc_callback(nullptr);
   }
 }
 #endif
