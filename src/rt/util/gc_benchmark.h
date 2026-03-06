@@ -357,7 +357,9 @@ namespace verona::rt::api
     size_t pos = path.find_last_of("/\\");
     if (pos != std::string::npos)
       path = path.substr(pos + 1);
-    path.resize(path.size() - 4);
+    size_t dot = path.find_last_of('.');
+    if (dot != std::string::npos)
+      path = path.substr(0, dot);
     print_summary(path.c_str());
   }
 
@@ -490,11 +492,11 @@ namespace verona::rt::api
 
     // Ensure CSVs directory exists (platform-independent)
     // Always use repo root for CSVs directory, 3 parents up from this file
-    std::filesystem::path this_file = __FILE__;
+    std::filesystem::path this_file = std::filesystem::canonical(__FILE__);
 
     std::filesystem::path repo_root = this_file.parent_path().parent_path().parent_path().parent_path();
     std::string dir = (repo_root / "CSVs" / filename_str).string();
-    std::filesystem::create_directory(dir);
+    std::filesystem::create_directories(dir);
     csv_filename += region_type_str + ".csv";
     std::string base_filename = std::filesystem::path(csv_filename).filename().string();
     std::string fullpath = dir + "/" + base_filename;
