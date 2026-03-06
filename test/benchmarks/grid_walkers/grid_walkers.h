@@ -213,35 +213,35 @@ void run_test(int gridsize, int numsteps, int numwalkers)
 
         if (options.size() == 0)
         {
-          std::cout << "walker " << j << " is softlocked\n";
+        //   std::cout << "walker " << j << " is softlocked\n";
           walkers[j] = grid[cdist(gen) * gridsize + cdist(gen)];
           continue;
         }
         std::uniform_int_distribution<size_t> dist(0, options.size() - 1);
         dir choice = options[dist(gen)];
-        std::cout << "walker " << j << " is ";
+        // std::cout << "walker " << j << " is ";
         switch (choice)
         {
           case dir::DOWN:
-            std::cout << "walking down\n";
+            // std::cout << "walking down\n";
             walker = walker->down;
             if (destroyLink)
               kill_link_up(walker); // messy... i know
             break;
           case dir::RIGHT:
-            std::cout << "walking right\n";
+            // std::cout << "walking right\n";
             walker = walker->right;
             if (destroyLink)
               kill_link_left(walker);
             break;
           case dir::UP:
-            std::cout << "walking up\n";
+            // std::cout << "walking up\n";
             walker = walker->up;
             if (destroyLink)
               kill_link_down(walker);
             break;
           case dir::LEFT:
-            std::cout << "walking left\n";
+            // std::cout << "walking left\n";
             walker = walker->left;
             if (destroyLink)
               kill_link_right(walker);

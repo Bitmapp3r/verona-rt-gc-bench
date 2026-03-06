@@ -132,7 +132,7 @@ namespace gol
         root->live_cells = current_grid;
 
         int heap_size = debug_size();
-        std::cout << "Heap size before region collect: " << heap_size << "\n";
+        // std::cout << "Heap size before region collect: " << heap_size << "\n";
 
         region_collect();
 
@@ -144,13 +144,13 @@ namespace gol
         }
 
         heap_size = debug_size();
-        std::cout << "Heap size after region collect: " << heap_size << "\n";
+        // std::cout << "Heap size after region collect: " << heap_size << "\n";
 
         if (heap_size != actual_alive_count + 1)
         { // +1 for SimRoot
-          std::cout << "FAILURE at Gen " << gen << "\n";
-          std::cout << "Heap: " << heap_size
-                    << " | Expected: " << (actual_alive_count + 1) << "\n";
+        //   std::cout << "FAILURE at Gen " << gen << "\n";
+        //   std::cout << "Heap: " << heap_size
+        //             << " | Expected: " << (actual_alive_count + 1) << "\n";
           // check(heap_size == actual_alive_count + 1);
         }
       }

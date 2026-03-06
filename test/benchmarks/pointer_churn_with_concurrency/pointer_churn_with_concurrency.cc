@@ -59,7 +59,9 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
     Logging::enable_logging();
 
   // Run test with selected GC type and parameters
-  pointer_churn_with_concurrency::run_test();
+  // pointer_churn_with_concurrency::run_test();
+  SystematicTestHarness harness(argc, argv);
+  harness.run(pointer_churn_with_concurrency::run_test, 500, 1000, 0, 10, 50);
 
   return 0;
 }
