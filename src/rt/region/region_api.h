@@ -233,21 +233,10 @@ namespace verona::rt::api
         return RegionRc::alloc((RegionRc*)RegionContext::get_region(), d);
       case RegionType::SemiSpace:
       {
-        auto* reg = (RegionSemiSpace*)RegionContext::get_region();
-        Object* o =
-          RegionSemiSpace::alloc(RegionContext::get_entry_point(), d);
-
-        // If the allocation triggered a from-space growth, grow()
-        // relocated all objects but could not update the entry point
-        // in RegionContext (header dependency order). Apply the
-        // pending delta here.
-        ptrdiff_t delta = reg->consume_grow_delta();
-        if (delta != 0)
-        {
-          Object*& entry = RegionContext::get_entry_point();
-          entry = (Object*)((std::byte*)entry + delta);
-        }
-        return o;
+        // The iso root is pinned on the heap and never moves during
+        // growth, so no entry-point adjustment is needed.
+        return RegionSemiSpace::alloc(
+          RegionContext::get_entry_point(), d);
       }
     }
     // Unreachable as case is exhaustive
@@ -272,17 +261,10 @@ namespace verona::rt::api
     assert(
       Region::get_type(RegionContext::get_region()) == RegionType::SemiSpace);
 
-    auto* reg = (RegionSemiSpace*)RegionContext::get_region();
-    RegionSemiSpace::ensure_available(RegionContext::get_entry_point(), bytes);
-
-    // If ensure_available triggered growth, apply the delta to the
-    // entry point (same pattern as create_object).
-    ptrdiff_t delta = reg->consume_grow_delta();
-    if (delta != 0)
-    {
-      Object*& entry = RegionContext::get_entry_point();
-      entry = (Object*)((std::byte*)entry + delta);
-    }
+    // The iso root is pinned on the heap and never moves during
+    // growth, so no entry-point adjustment is needed.
+    RegionSemiSpace::ensure_available(
+      RegionContext::get_entry_point(), bytes);
   }
 
   inline void add_reference(Object*)

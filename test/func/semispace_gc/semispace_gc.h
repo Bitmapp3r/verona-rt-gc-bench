@@ -7,27 +7,17 @@
 namespace semispace_gc
 {
   /**
-   * IMPORTANT: After each region_collect() or allocation that may trigger a
-   * semispace growth, ALL C++ local pointers to objects in the region are
-   * INVALIDATED because the GC/grow physically moves objects. Every time we
-   * want to access objects after such an operation, we must re-read the root
-   * via get_root() and traverse from the updated root.
+   * The iso (root) object of a SemiSpace region is heap-allocated and
+   * pinned — it never moves during region_collect() or semispace
+   * growth.  This means the C++ pointer returned by
+   * `new (RegionType::SemiSpace) T` stays valid for the lifetime of
+   * the region, with no need to call get_root() after GC or growth.
    *
-   * IMPORTANT: If we are doing concurrent GC then we should always get a new
-   * root when opening up a region as we may have had garbage collection since
-   * it was last closed.
-   *
-   * Between allocations/GC calls (when no move can occur), local variables
-   * caching interior objects are safe to reuse.
+   * Non-root objects in from-space are still copied/relocated by GC
+   * and growth, so C++ local pointers to interior objects become stale
+   * after those operations.  Navigate from the (stable) root instead.
    */
 
-  // Helper to get the current root iso from the region context,
-  // cast to the desired type.  Defaults to C1* for the common tests.
-  template<typename T = C1>
-  inline T* get_root()
-  {
-    return (T*)internal::RegionContext::get_entry_point();
-  }
 
   // ---------------------------------------------------------------------------
   // Object types used by the growth & large-object tests.
@@ -110,7 +100,6 @@ namespace semispace_gc
       UsingRegion rr(root);
 
       region_ensure_available(4 * vsizeof<C1>);
-      root = get_root();
 
       auto* A = new C1;
       auto* B = new C1;
@@ -127,9 +116,8 @@ namespace semispace_gc
       // Prune left branch BEFORE GC so we don't need stale pointers.
       root->f1 = nullptr;
 
-      // GC copies root and B; discards A, C, D.
+      // GC keeps pinned root and B; discards A, C, D.
       region_collect();
-      root = get_root();
 
       check(debug_size() == 2); // root + B
     }
@@ -149,7 +137,6 @@ namespace semispace_gc
       UsingRegion rr(root);
 
       region_ensure_available(3 * vsizeof<C1>);
-      root = get_root();
 
       auto* a = new C1;
       auto* b = new C1;
@@ -163,15 +150,12 @@ namespace semispace_gc
 
       // Three GC cycles, nothing to collect.
       region_collect();
-      root = get_root();
       check(debug_size() == 4);
 
       region_collect();
-      root = get_root();
       check(debug_size() == 4);
 
       region_collect();
-      root = get_root();
       check(debug_size() == 4);
     }
 
@@ -191,7 +175,6 @@ namespace semispace_gc
       UsingRegion rr(root);
 
       region_ensure_available(2 * vsizeof<C1>);
-      root = get_root();
 
       auto* a = new C1;
       auto* b = new C1;
@@ -203,24 +186,20 @@ namespace semispace_gc
 
       // Cycle 1: no garbage.
       region_collect();
-      root = get_root();
       check(debug_size() == 3);
 
       // Make b unreachable: root->f1 is the new 'a' after GC.
       root->f1->f1 = nullptr; // a->f1 = nullptr
       region_collect();
-      root = get_root();
       check(debug_size() == 2); // root + a
 
       // Make a unreachable.
       root->f1 = nullptr;
       region_collect();
-      root = get_root();
       check(debug_size() == 1); // only root
 
       // Allocate more after multiple GC cycles.
       region_ensure_available(2 * vsizeof<C1>);
-      root = get_root();
 
       auto* c = new C1;
       auto* d = new C1;
@@ -231,13 +210,11 @@ namespace semispace_gc
 
       // GC with all reachable.
       region_collect();
-      root = get_root();
       check(debug_size() == 3);
 
       // Make all children unreachable.
       root->f1 = nullptr;
       region_collect();
-      root = get_root();
       check(debug_size() == 1);
     }
 
@@ -264,7 +241,6 @@ namespace semispace_gc
       UsingRegion rr(root);
 
       region_ensure_available(3 * vsizeof<C1>);
-      root = get_root();
 
       auto* L = new C1;
       auto* R = new C1;
@@ -279,26 +255,22 @@ namespace semispace_gc
 
       // GC, nothing to collect.
       region_collect();
-      root = get_root();
       check(debug_size() == 4);
 
       // Break one path (L -> shared). Shared still reachable through R.
       root->f1->f1 = nullptr; // L->shared = nullptr
       region_collect();
-      root = get_root();
       check(debug_size() == 4); // all still reachable
 
       // Break second path (R -> shared). Shared now unreachable.
       root->f2->f1 = nullptr; // R->shared = nullptr
       region_collect();
-      root = get_root();
       check(debug_size() == 3); // root, L, R
 
       // Remove L and R.
       root->f1 = nullptr;
       root->f2 = nullptr;
       region_collect();
-      root = get_root();
       check(debug_size() == 1);
     }
 
@@ -319,7 +291,6 @@ namespace semispace_gc
       UsingRegion rr(root);
 
       region_ensure_available(5 * vsizeof<C1>);
-      root = get_root();
 
       auto* n1 = new C1;
       auto* n2 = new C1;
@@ -338,13 +309,11 @@ namespace semispace_gc
       // Break at n2->n3 (before GC, using stale-safe C++ pointer).
       n2->f1 = nullptr;
       region_collect();
-      root = get_root();
       check(debug_size() == 3); // root, n1, n2
 
       // Break root->n1.
       root->f1 = nullptr;
       region_collect();
-      root = get_root();
       check(debug_size() == 1);
     }
 
@@ -364,10 +333,8 @@ namespace semispace_gc
 
       check(debug_size() == 1);
       region_collect();
-      root = get_root();
       check(debug_size() == 1);
       region_collect();
-      root = get_root();
       check(debug_size() == 1);
     }
 
@@ -387,7 +354,6 @@ namespace semispace_gc
       UsingRegion rr(root);
 
       region_ensure_available(1 * vsizeof<C1>);
-      root = get_root();
 
       auto* a = new C1;
 
@@ -396,12 +362,10 @@ namespace semispace_gc
 
       // GC (no garbage).
       region_collect();
-      root = get_root();
       check(debug_size() == 2);
 
       // Allocate new objects AFTER GC (in the new from-space).
       region_ensure_available(2 * vsizeof<C1>);
-      root = get_root();
 
       auto* b = new C1;
       auto* c = new C1;
@@ -413,13 +377,11 @@ namespace semispace_gc
 
       // GC again — all reachable.
       region_collect();
-      root = get_root();
       check(debug_size() == 4);
 
       // Make some garbage and collect.
       root->f2 = nullptr; // b and c become garbage
       region_collect();
-      root = get_root();
       check(debug_size() == 2); // root + a
     }
 
@@ -450,7 +412,6 @@ namespace semispace_gc
 
       // Allocate several small objects. They should all go into from-space.
       region_ensure_available(3 * vsizeof<C1>);
-      root = get_root();
 
       auto* a = new C1;
       auto* b = new C1;
@@ -519,9 +480,10 @@ namespace semispace_gc
    * Test 10: The semispace grows (doubles) only when from-space cannot
    * fit a new allocation, and the new semispace size is correct.
    *
-   * After every allocation that may trigger growth we re-read the root
-   * via get_root() and walk the chain to find the tail, since local
-   * pointers to from-space objects are invalidated by grow().
+   * After every allocation that may trigger growth we walk the chain
+   * from root to find the tail, since local pointers to non-root
+   * from-space objects are invalidated by grow().  The root itself is
+   * pinned and never moves.
    */
   void test_semispace_grows_when_full()
   {
@@ -544,9 +506,8 @@ namespace semispace_gc
         auto* c = new Chunk;
 
         // The allocation above may have triggered grow(), which
-        // invalidates all previous from-space pointers. Re-read the
-        // root and walk the chain to find the current tail.
-        root = get_root<Chunk>();
+        // invalidates all previous from-space pointers. Walk the
+        // chain from the pinned root to find the current tail.
         Chunk* tail = root;
         while (tail->next != nullptr)
           tail = tail->next;
@@ -568,8 +529,7 @@ namespace semispace_gc
       size_t ss2 = debug_semispace_size();
       auto* extra = new Chunk;
 
-      // Refresh root and link 'extra' at the tail.
-      root = get_root<Chunk>();
+      // Link 'extra' at the tail.
       Chunk* tail = root;
       while (tail->next != nullptr)
         tail = tail->next;
@@ -600,7 +560,6 @@ namespace semispace_gc
 
       // Allocate small objects via MixedNode chain.
       region_ensure_available(2 * vsizeof<MixedNode>);
-      root = get_root<MixedNode>();
 
       auto* a = new MixedNode;
       auto* b = new MixedNode;
@@ -619,14 +578,12 @@ namespace semispace_gc
 
       // GC with all reachable — sizes should not change.
       region_collect();
-      root = get_root<MixedNode>();
       check(debug_size() == 5);
       check(debug_large_object_count() == 2);
 
       // Make b (and big2) unreachable: root->child is 'a' after GC.
       root->child->child = nullptr; // a->child = nullptr, kills b and big2
       region_collect();
-      root = get_root<MixedNode>();
 
       check(debug_size() == 3);          // root, a, big1
       check(debug_large_object_count() == 1); // only big1
@@ -634,7 +591,6 @@ namespace semispace_gc
       // Make big1 unreachable.
       root->child->big = nullptr; // a->big = nullptr
       region_collect();
-      root = get_root<MixedNode>();
 
       check(debug_size() == 2);          // root, a
       check(debug_large_object_count() == 0);
