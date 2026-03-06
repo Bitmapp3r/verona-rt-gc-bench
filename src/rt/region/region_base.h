@@ -1,7 +1,9 @@
 // Copyright Microsoft and Project Verona Contributors.
 // SPDX-License-Identifier: MIT
 #pragma once
+#ifdef ENABLE_BENCHMARKING
 #include <functional>
+#endif
 
 #include "../object/object.h"
 #include "externalreference.h"
@@ -55,6 +57,7 @@ namespace verona::rt
     }
   };
 
+#ifdef ENABLE_BENCHMARKING
   // Callback for region GC/release operations
   inline thread_local std::function<void(uint64_t, RegionType, size_t, size_t)>* 
     gc_callback = nullptr;
@@ -70,5 +73,6 @@ namespace verona::rt
   {
     return gc_callback;
   }
+#endif // ENABLE_BENCHMARKING
 
 } // namespace verona::rt

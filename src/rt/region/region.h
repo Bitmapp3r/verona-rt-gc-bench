@@ -7,7 +7,9 @@
 #include "region_base.h"
 #include "region_rc.h"
 #include "region_trace.h"
+#ifdef ENABLE_BENCHMARKING
 #include <test/measuretime.h>
+#endif
 
 namespace verona::rt
 {
@@ -96,10 +98,15 @@ namespace verona::rt
 
   /**
    * Helper to capture stats, run an action, and report metrics.
+   * When ENABLE_BENCHMARKING is off, just executes the action directly.
    */
   template<typename Action>
-  inline void with_region_stats(RegionBase* r, const char* op_name, Action&& action)
+  inline void with_region_stats(
+    [[maybe_unused]] RegionBase* r,
+    [[maybe_unused]] const char* op_name,
+    Action&& action)
   {
+#ifdef ENABLE_BENCHMARKING
     RegionType type;
     if (RegionTrace::is_trace_region(r))
       type = RegionType::Trace;
@@ -143,6 +150,9 @@ namespace verona::rt
       Logging::cout() << op_name << " time: " << duration_ns << " ns"
                       << Logging::endl;
     }
+#else
+    action();
+#endif // ENABLE_BENCHMARKING
   }
 
   class Region

@@ -507,7 +507,7 @@ namespace verona::rt::api
     if (count_by_type.size() > 1)
     {
       std::cout << "\nPer-Region Type:\n";
-      const char* type_names[] = {"Trace", "Rc", "Arena"};
+      const char* type_names[] = {"Trace", "Arena", "Rc"};
       for (const auto& [type_id, count] : count_by_type)
       {
         uint64_t total = total_by_type[type_id];

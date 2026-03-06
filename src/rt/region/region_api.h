@@ -6,7 +6,6 @@
 #include "region.h"
 
 #include <debug/logging.h>
-#include <functional>
 
 namespace verona::rt::api
 {
@@ -276,19 +275,21 @@ namespace verona::rt::api
     RegionType type = Region::get_type(RegionContext::get_region());
     Object* entry = RegionContext::get_entry_point();
 
+    if (type == RegionType::Arena)
+      return; // Arena has no GC to collect; skip measurement overhead.
+
     with_region_stats(RegionContext::get_region(), "Region collect", [&]() {
       switch (type)
       {
         case RegionType::Trace:
           RegionTrace::gc(entry);
           break;
-        case RegionType::Arena:
-          // Nothing to collect here!
-          break;
         case RegionType::Rc:
           RegionRc::gc_cycles(
             entry,
             (RegionRc*)RegionContext::get_region());
+          break;
+        default:
           break;
       }
     });

@@ -78,6 +78,11 @@ if(USE_SCHED_STATS)
   target_compile_definitions(verona_rt INTERFACE -DUSE_SCHED_STATS)
 endif()
 
+option(ENABLE_BENCHMARKING "Enable GC benchmarking measurement for all targets (benchmarks always have it on)" OFF)
+if(ENABLE_BENCHMARKING)
+  target_compile_definitions(verona_rt INTERFACE -DENABLE_BENCHMARKING)
+endif()
+
 target_compile_definitions(verona_rt INTERFACE -DSNMALLOC_CHEAP_CHECKS)
 
 set(CMAKE_CXX_STANDARD 17)
