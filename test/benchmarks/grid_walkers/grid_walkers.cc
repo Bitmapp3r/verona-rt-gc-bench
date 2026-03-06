@@ -3,22 +3,9 @@
 #include "grid_walkers.h"
 
 #include "util/gc_benchmark.h"
+#include "../../../src/benchmarker/export_macro.h"
 
-int main(int argc, char** argv)
-{
-  opt::Opt opt(argc, argv);
-
-  test_walker(40, 20, 10);
-  return 0;
-}
-
-#if defined(_WIN32) || defined(_WIN64)
-#  define EXPORT __declspec(dllexport)
-#else
-#  define EXPORT
-#endif
-
-extern "C" EXPORT int run_benchmark(int argc, char** argv)
+extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
 
@@ -42,5 +29,13 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
   }
 
   test_walker(gridsize, numsteps, numwalkers);
+  return 0;
+}
+
+int main(int argc, char** argv)
+{
+  opt::Opt opt(argc, argv);
+
+  test_walker(40, 20, 10);
   return 0;
 }

@@ -4,7 +4,7 @@
 #include <debug/harness.h>
 #include <verona.h>
 
-RegionType stringToRegionType(const std::string& gc_type)
+RegionType string_to_region_type(const std::string& gc_type)
 {
   if (gc_type == "trace")
   {
@@ -25,18 +25,17 @@ RegionType stringToRegionType(const std::string& gc_type)
   }
 }
 
-RegionType parseRegionType(int argc, char** argv, const std::string& default_type = "trace")
+RegionType parse_region_type(opt::Opt& opt)
+// Default to Trace if no region is specified
 {
-  std::string gc_type = default_type;
-  for (int i = 1; i < argc; i++)
-  {
-    if (std::string(argv[i]) == "-g" && i + 1 < argc)
-    {
-      gc_type = argv[i + 1];
-      break;
-    }
-  }
-  return stringToRegionType(gc_type);
+  if (opt.has("--trace"))
+    return RegionType::Trace;
+  else if (opt.has("--arena"))
+    return RegionType::Arena;
+  else if (opt.has("--rc"))
+    return RegionType::Rc;
+  else
+    return RegionType::Trace;
 }
 
 template <typename F, typename... Args>
@@ -59,14 +58,26 @@ decltype(auto) run_with_region(RegionType rt, F&& f, Args&&... args) {
     }
 }
 
-#define MAKE_REGION_WRAPPER(name, func)                          \
-struct name                                                      \
-{                                                                \
-  template <RegionType R, typename... Args>                     \
-  decltype(auto) operator()(Args&&... args) const               \
-  {                                                              \
-    return func<R>(std::forward<Args>(args)...);                \
-  }                                                              \
+#define MAKE_REGION_WRAPPER(name, func) \
+struct name \
+{ \
+  template <RegionType R, typename... Args> \
+  decltype(auto) operator()(Args&&... args) const \
+  { \
+    return func<R>(std::forward<Args>(args)...); \
+  } \
 };
 
 #define DISPATCH_REGION(rt, wrapper, ...) run_with_region(rt, wrapper{}, __VA_ARGS__)
+
+inline void enable_benchmark_logging(opt::Opt& opt)
+{
+    #ifdef CI_BUILD
+      auto log = true;
+    #else
+      auto log = opt.has("--log-all");
+    #endif
+
+    if (log)
+      Logging::enable_logging();
+}

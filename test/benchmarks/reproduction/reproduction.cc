@@ -7,33 +7,23 @@
 #include <util/gc_benchmark.h>
 #include "../benchmarker/benchmark_main_helper.h"
 #include "region/region_base.h"
+#include "../../../src/benchmarker/export_macro.h"
 
-#if defined(_WIN32) || defined(_WIN64)
-#  define EXPORT __declspec(dllexport)
-#else
-#  define EXPORT
-#endif
+MAKE_REGION_WRAPPER(test, reproduction::run_test);
 
-extern "C" EXPORT int run_benchmark(int argc, char** argv)
+extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
 
-#ifdef CI_BUILD
-  auto log = true;
-#else
-  auto log = opt.has("--log-all");
-#endif
+  enable_benchmark_logging(opt);
+  RegionType rt = parse_region_type(opt);
 
-  if (log)
-    Logging::enable_logging();
+  size_t seed = opt.is<size_t>("--seed", 42);
+  int generations = opt.is<int>("--generations", 101);
+  int killPercent = opt.is<int>("--kill-percent", 50);
+  int popSize     = opt.is<int>("--pop-size", 100);
 
-  size_t seed =
-    opt.is<size_t>("--seed", 42);
-  
-  RegionType rt = stringToRegionType(argv[0]);
-//   dispatch(rt, [seed](auto regionType) {
-//     reproduction::run_test<decltype(regionType)::value>(101, 50, seed);
-//   });
+  DISPATCH_REGION(rt, test, generations, killPercent, popSize, seed);
   return 0;
 }
 
