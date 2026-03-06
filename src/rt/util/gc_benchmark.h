@@ -157,12 +157,39 @@ namespace verona::rt::api
 
   public:
     /**
+     * If non-null, run_benchmark reads wall-clock time from here instead
+     * of timing test_fn externally. This lets callers measure only an
+     * inner portion of test_fn (e.g. after harness/scheduler setup).
+     */
+    uint64_t* wall_time_ns_out = nullptr;
+
+    /**
+     * Wrap a function with internal wall-clock timing and write elapsed
+     * nanoseconds to wall_time_ns_out when configured.
+     */
+    std::function<void()> timed(std::function<void()> fn)
+    {
+      return [this, fn]() {
+        auto t_start = std::chrono::high_resolution_clock::now();
+        fn();
+        auto t_end = std::chrono::high_resolution_clock::now();
+        if (wall_time_ns_out != nullptr)
+        {
+          *wall_time_ns_out = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            t_end - t_start)
+                               .count();
+        }
+      };
+    }
+
+    /**
      * Run a test function multiple times and collect GC metrics.
      *
      * @param test_fn Function that runs one iteration of the test
      * @param num_runs Number of times to run the test (default 5)
      * @param warmup_runs Number of warmup iterations before collecting (default
      * 0)
+     * @param test_name Name used for CSV output and summary
      */
     void run_benchmark(
       std::function<void()> test_fn,
@@ -286,13 +313,13 @@ namespace verona::rt::api
 
         {
           // Enable callback for warmup
-          auto prev = internal::RegionContext::get_gc_callback();
-          internal::RegionContext::set_gc_callback(&callback);
+          auto prev = get_gc_callback();
+          set_gc_callback(&callback);
 
           test_fn();
 
           // Restore previous callback
-          internal::RegionContext::set_gc_callback(prev);
+          set_gc_callback(prev);
         }
         std::cout << "Warmup " << (warmup + 1) << " complete\n";
       }
@@ -317,16 +344,27 @@ namespace verona::rt::api
       uint64_t run_time_ns;
       {
         // Enable callback for this run
-        auto prev = internal::RegionContext::get_gc_callback();
-        internal::RegionContext::set_gc_callback(&callback);
+        auto prev = get_gc_callback();
+        set_gc_callback(&callback);
 
-        auto t_start = std::chrono::high_resolution_clock::now();
-        test_fn();
-        auto t_end = std::chrono::high_resolution_clock::now();
-        run_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
+        // If wall_time_ns_out is provided, test_fn measures internally
+        // and writes elapsed nanoseconds there. Otherwise measure test_fn.
+        if (wall_time_ns_out)
+        {
+          *wall_time_ns_out = 0;
+          test_fn();
+          run_time_ns = *wall_time_ns_out;
+        }
+        else
+        {
+          auto t_start = std::chrono::high_resolution_clock::now();
+          test_fn();
+          auto t_end = std::chrono::high_resolution_clock::now();
+          run_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
+        }
 
         // Restore previous callback
-        internal::RegionContext::set_gc_callback(prev);
+        set_gc_callback(prev);
       }
 
       // Record all GC measurements
@@ -366,7 +404,10 @@ namespace verona::rt::api
     size_t pos = path.find_last_of("/\\");
     if (pos != std::string::npos)
       path = path.substr(pos + 1);
-    path.resize(path.size() - 4);
+    
+    size_t dot = path.find_last_of('.');
+    if (dot != std::string::npos)
+      path = path.substr(0, dot);
     print_summary(path.c_str());
   }
 
@@ -398,6 +439,7 @@ namespace verona::rt::api
     std::cout << "\n" << std::string(90, '=') << "\n";
     std::cout << "Benchmark Summary: " << test_name << "\n";
     std::cout << std::string(90, '=') << "\n";
+    std::cout << std::dec; // Ensure decimal output
     std::cout << "Number of runs: " << run_results.size() << "\n\n";
     std::cout << "Per-Run Results:\n";
     std::cout << std::left << std::setw(5) << "Run" << std::setw(14)
@@ -407,11 +449,12 @@ namespace verona::rt::api
               << "Peak Mem" << std::setw(10) << "Peak Obj\n";
     std::cout << std::string(92, '-') << "\n";
 
+    std::cout << std::fixed << std::setprecision(5);
     for (size_t i = 0; i < run_results.size(); i++)
     {
       const auto& r = run_results[i];
-      std::cout << std::left << std::setw(5) << (i + 1) << std::setw(14)
-                << (r.total_run_time_ns / 1000000) << std::setw(15)
+      std::cout << std::dec << std::left << std::setw(5) << (i + 1) << std::setw(14)
+                << (r.total_run_time_ns / 1000000.0) << std::setw(15)
                 << r.total_gc_time_ns << std::setw(8) << r.gc_call_count
                 << std::setw(12) << r.max_gc_time_ns << std::setw(14)
                 << format_bytes(r.avg_memory_bytes) << std::setw(14)
@@ -436,8 +479,8 @@ namespace verona::rt::api
     size_t overall_peak_obj = total_peak_obj / run_results.size();
     uint64_t overall_avg_run_time = total_run_time / run_results.size();
 
-    std::cout << std::left << std::setw(5) << "Avg" << std::setw(14)
-              << (overall_avg_run_time / 1000000) << std::setw(15)
+    std::cout << std::dec << std::left << std::setw(5) << "Avg" << std::setw(14)
+              << (overall_avg_run_time / 1000000.0) << std::setw(15)
               << get_average_gc_time() << std::setw(8)
               << (int)get_average_gc_calls() << std::setw(12) << "-"
               << std::setw(14) << format_bytes(overall_avg_mem) << std::setw(14)
@@ -449,7 +492,7 @@ namespace verona::rt::api
     uint64_t p99 = calculate_percentile(sorted_measurements, 99);
     double jitter = (p50 == 0) ? 0 : (double)(p99 - p50) / p50;
 
-    std::cout << std::fixed << std::setprecision(4);
+    std::cout << std::dec << std::fixed << std::setprecision(4);
     std::cout << "\nGC Timing:\n";
     std::cout << "  P50: " << p50 << " ns | P99: " << p99 << " ns\n";
     std::cout << "  Jitter (P99-P50)/P50: " << jitter << "\n";
@@ -464,7 +507,7 @@ namespace verona::rt::api
     if (count_by_type.size() > 1)
     {
       std::cout << "\nPer-Region Type:\n";
-      const char* type_names[] = {"Trace", "Rc", "Arena"};
+      const char* type_names[] = {"Trace", "Arena", "Rc"};
       for (const auto& [type_id, count] : count_by_type)
       {
         uint64_t total = total_by_type[type_id];
@@ -505,8 +548,7 @@ namespace verona::rt::api
 
     // Ensure CSVs directory exists (platform-independent)
     // Always use repo root for CSVs directory, 3 parents up from this file
-    std::filesystem::path this_file = __FILE__;
-
+    std::filesystem::path this_file = std::filesystem::canonical(__FILE__);
     std::filesystem::path repo_root = this_file.parent_path().parent_path().parent_path().parent_path();
     std::string dir = (repo_root / "CSVs" / filename_str).string();
     std::filesystem::create_directories(dir);

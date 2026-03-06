@@ -47,9 +47,9 @@ int main(int argc, char** argv)
 
   SystematicTestHarness harness(argc, argv);
 
-  std::cout << "\nRunning with arena region" << std::endl;
   GCBenchmark trace_benchmark;
 
+  std::cout << "\nRunning with Trace region" << std::endl;
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
@@ -59,10 +59,21 @@ int main(int argc, char** argv)
     warmup_runs,
     test_name);
 
+  std::cout << "\nRunning with Arena region" << std::endl;
   trace_benchmark.run_benchmark(
     [&, size, regions]() {
       harness.run(
         [=]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
+    },
+    runs,
+    warmup_runs,
+    test_name);
+
+  std::cout << "\nRunning with Rc region" << std::endl;
+  trace_benchmark.run_benchmark(
+    [&, size, regions]() {
+      harness.run(
+        [=]() { arbitrary_nodes::run_test<RegionType::Rc>(size, regions); });
     },
     runs,
     warmup_runs,
