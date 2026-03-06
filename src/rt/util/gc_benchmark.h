@@ -286,13 +286,13 @@ namespace verona::rt::api
 
         {
           // Enable callback for warmup
-          auto prev = get_gc_callback();
-          set_gc_callback(&callback);
+          auto prev = internal::RegionContext::get_gc_callback();
+          internal::RegionContext::set_gc_callback(&callback);
 
           test_fn();
 
           // Restore previous callback
-          set_gc_callback(prev);
+          internal::RegionContext::set_gc_callback(prev);
         }
         std::cout << "Warmup " << (warmup + 1) << " complete\n";
       }
@@ -317,8 +317,8 @@ namespace verona::rt::api
       uint64_t run_time_ns;
       {
         // Enable callback for this run
-        auto prev = get_gc_callback();
-        set_gc_callback(&callback);
+        auto prev = internal::RegionContext::get_gc_callback();
+        internal::RegionContext::set_gc_callback(&callback);
 
         auto t_start = std::chrono::high_resolution_clock::now();
         test_fn();
@@ -326,7 +326,7 @@ namespace verona::rt::api
         run_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
 
         // Restore previous callback
-        set_gc_callback(prev);
+        internal::RegionContext::set_gc_callback(prev);
       }
 
       // Record all GC measurements

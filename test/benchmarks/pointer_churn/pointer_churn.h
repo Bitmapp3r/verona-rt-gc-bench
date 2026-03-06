@@ -17,15 +17,15 @@ namespace pointer_churn
   /**
    * This test creates a directed graph of nodes in a chain from the root (id =
    * 0) node. Nodes are able to have a set number of outgoing edges to other,
-   * non-root nodes. 
-   * 
+   * non-root nodes.
+   *
    * We mutate the graph by randomly adding, updating, or
    * attempting to remove outgoing edges to other nodes. This will result in
    * many changes to referenced nodes which can result in nodes/cycles that are
    * disconnected from the root - these may be garbage collected (if the GC
    * supports this) at certain intervals or immediately (depending on GC type).
-   * 
-   * 
+   *
+   *
    * The graph can prematurely collapse to just the root before being able to
    * mutate the given number of times, at which point we close and release the
    * region and repeat the process with a new region until we have mutated the
@@ -100,7 +100,7 @@ namespace pointer_churn
   }
   template<RegionType RT>
   void
-  test_pointer_churn(size_t num_nodes, size_t num_mutations, size_t inputSeed)
+  run_test(size_t num_nodes, size_t num_mutations, size_t inputSeed)
   {
     // Number of initial nodes in the graph (including root)
     const size_t NUM_NODES = num_nodes;
@@ -271,42 +271,42 @@ namespace pointer_churn
     }
   }
 
-  void run_test(
-    const std::string& gc_type,
-    size_t num_nodes,
-    size_t num_mutations,
-    size_t inputSeed)
-  {
-    if (gc_type == "trace")
-    {
-      std::cout << "\n=========================================\n";
-      std::cout << "|  Pointer Churn Test: Trace GC         |\n";
-      std::cout << "=========================================\n";
-      test_pointer_churn<RegionType::Trace>(
-        num_nodes, num_mutations, inputSeed);
-    }
-    else if (gc_type == "arena")
-    {
-      std::cout << "\n=========================================\n";
-      std::cout << "|  Pointer Churn Test: Arena            |\n";
-      std::cout << "=========================================\n";
-      test_pointer_churn<RegionType::Arena>(
-        num_nodes, num_mutations, inputSeed);
-    }
-    else if (gc_type == "rc")
-    {
-      std::cout << "\n=========================================\n";
-      std::cout << "|  Pointer Churn Test: RC GC            |\n";
-      std::cout << "=========================================\n";
-      test_pointer_churn<RegionType::Rc>(num_nodes, num_mutations, inputSeed);
-    }
-    else if (gc_type == "semispace")
-    {
-      std::cout << "\n=========================================\n";
-      std::cout << "|  Pointer Churn Test: SemiSpace GC     |\n";
-      std::cout << "=========================================\n";
-      test_pointer_churn<RegionType::SemiSpace>(
-        num_nodes, num_mutations, inputSeed);
-    }
-  }
+  // void run_test(
+  //   const std::string& gc_type,
+  //   size_t num_nodes,
+  //   size_t num_mutations,
+  //   size_t inputSeed)
+  // {
+  //   if (gc_type == "trace")
+  //   {
+  //     std::cout << "\n=========================================\n";
+  //     std::cout << "|  Pointer Churn Test: Trace GC         |\n";
+  //     std::cout << "=========================================\n";
+  //     test_pointer_churn<RegionType::Trace>(
+  //       num_nodes, num_mutations, inputSeed);
+  //   }
+  //   else if (gc_type == "arena")
+  //   {
+  //     std::cout << "\n=========================================\n";
+  //     std::cout << "|  Pointer Churn Test: Arena            |\n";
+  //     std::cout << "=========================================\n";
+  //     test_pointer_churn<RegionType::Arena>(
+  //       num_nodes, num_mutations, inputSeed);
+  //   }
+  //   else if (gc_type == "rc")
+  //   {
+  //     std::cout << "\n=========================================\n";
+  //     std::cout << "|  Pointer Churn Test: RC GC            |\n";
+  //     std::cout << "=========================================\n";
+  //     test_pointer_churn<RegionType::Rc>(num_nodes, num_mutations, inputSeed);
+  //   }
+  //   else if (gc_type == "semispace")
+  //   {
+  //     std::cout << "\n=========================================\n";
+  //     std::cout << "|  Pointer Churn Test: SemiSpace GC     |\n";
+  //     std::cout << "=========================================\n";
+  //     test_pointer_churn<RegionType::SemiSpace>(
+  //       num_nodes, num_mutations, inputSeed);
+  //   }
+  // }
 }

@@ -9,6 +9,8 @@
 #include "region/region_base.h"
 #include "../../../src/benchmarker/export_macro.h"
 
+BENCHMARK_WINDOWS_CALLBACK_BRIDGE()
+
 MAKE_REGION_WRAPPER(test, reproduction::run_test);
 
 extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
@@ -29,8 +31,6 @@ extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
 
 int main(int argc, char** argv)
 {
-  opt::Opt opt(argc, argv);
-
   run_benchmark(argc, argv);
   return 0;
 }

@@ -132,12 +132,13 @@ enum class dir
   LEFT
 };
 
-void test_walker(int gridsize, int numsteps, int numwalkers)
+template<RegionType rt>
+void run_test(int gridsize, int numsteps, int numwalkers)
 {
   // create grid
   Node** grid = new Node*[gridsize * gridsize];
 
-  grid[0] = new (RegionType::Trace) Node;
+  grid[0] = new (rt) Node;
   Node* root = grid[0];
 
   {

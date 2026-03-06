@@ -66,11 +66,6 @@ namespace reproduction
 
     Organism() : id(counter++) {}
 
-    ~Organism()
-    {
-      // std::cout << "Organism " << id << " destroyed\n";
-    }
-
     void trace(ObjectStack& st)
     {
       if (root)
@@ -134,11 +129,7 @@ namespace reproduction
   {
     // child takes over pos->next position
     child->next = pos->next;
-
-    if constexpr (rt == RegionType::Rc)
-      // incref(child->next);   // preserve reference
-
-      pos->next = child;
+    pos->next = child;
   }
 
   template<RegionType rt>
@@ -154,7 +145,7 @@ namespace reproduction
     {
       return false;
     }
-    // std::cout << "trying to kill " << victim->id << "\n";
+    Logging::cout() << "trying to kill " << victim->id << "\n";
     prev->next = victim->next;
 
     if constexpr (rt == RegionType::Rc)
@@ -167,23 +158,23 @@ namespace reproduction
 
   void printRing(Organism* root)
   {
-    std::cout << "=========PRINTING RING=========\n";
+    Logging::cout() << "=========PRINTING RING=========\n";
     Organism* start = root;
     int i = 0;
     do
     {
       i++;
       if (root)
-        std::cout << root->id << " -> ";
+        Logging::cout() << root->id << " -> ";
       else
-        std::cout << "null";
+        Logging::cout() << "null";
       root = root->next;
     } while (root != start);
     if (root)
-      std::cout << root->id << " -> ";
+      Logging::cout() << root->id << " -> ";
     else
-      std::cout << "null";
-    std::cout << "\n";
+      Logging::cout() << "null";
+    Logging::cout() << "\n";
   }
 
   // ============================================================
@@ -215,7 +206,7 @@ namespace reproduction
       if constexpr (rt == RegionType::Rc)
         incref(first);
 
-      // std::cout << "Initial region size: " << debug_size() << "\n";
+      // Logging::cout() << "Initial region size: " << debug_size() << "\n";
     }
 
     if (seed == 0)
@@ -233,7 +224,6 @@ namespace reproduction
 
         int kills = 0;
 
-        // printRing(root->next);
         // ---- Killing phase ----
         for (int i = 0; i < popSize; i++)
         {
@@ -253,10 +243,10 @@ namespace reproduction
 
         region_collect();
 
-        // std::cout << "Gen " << g
-        //           << " kills=" << kills
-        //           << " size=" << debug_size()
-        //           << "\n";
+        Logging::cout() << "Gen " << g
+                  << " kills=" << kills
+                  << " size=" << debug_size()
+                  << "\n";
 
         // ---- Reproduction phase ----
         int births = (killPercent * popSize) / 100;
@@ -273,8 +263,8 @@ namespace reproduction
           link_after<rt>(p2, child);
         }
 
-        // std::cout << "After reproduction size="
-        //           << debug_size() << "\n";
+        Logging::cout() << "After reproduction size="
+                  << debug_size() << "\n";
       }
     }
   }

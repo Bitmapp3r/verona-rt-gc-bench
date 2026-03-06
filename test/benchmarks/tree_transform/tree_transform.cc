@@ -4,32 +4,19 @@
 
 #include <debug/harness.h>
 #include <test/opt.h>
+#include "../../../src/benchmarker/export_macro.h"
+#include "../benchmarker/benchmark_main_helper.h"
 
-#if defined(_WIN32) || defined(_WIN64)
-#  define EXPORT __declspec(dllexport)
-#else
-#  define EXPORT
-#endif
+BENCHMARK_WINDOWS_CALLBACK_BRIDGE()
 
-#if defined(_WIN32) || defined(_WIN64)
-extern "C" EXPORT void set_gc_callback(void (*callback)(uint64_t, verona::rt::RegionType, size_t, size_t))
-{
-  static std::function<void(uint64_t, verona::rt::RegionType, size_t, size_t)> func;
-  if (callback)
-  {
-    func = callback;
-    RegionContext::set_gc_callback(&func);
-  }
-  else
-  {
-    RegionContext::set_gc_callback(nullptr);
-  }
-}
-#endif
+MAKE_REGION_WRAPPER(test, tree_transform::run_test);
 
-extern "C" EXPORT int run_benchmark(int argc, char** argv)
+extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
+
+  enable_benchmark_logging(opt);
+  RegionType rt = parse_region_type(opt);
 
   // Parse command-line arguments
   size_t seed = opt.is<size_t>("--seed", 0);
@@ -37,36 +24,13 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
   int depth = opt.is<int>("-d", 10);
   int transforms = opt.is<int>("-t", 5);
 
-  // Parse GC type manually
-  std::string gc_type = "trace";
-  for (int i = 1; i < argc; i++)
-  {
-    if (std::string(argv[i]) == "-g" && i + 1 < argc)
-    {
-      gc_type = argv[i + 1];
-      break;
-    }
-  }
-
-#ifdef CI_BUILD
-  auto log = true;
-#else
-  auto log = opt.has("--log-all");
-#endif
-
-  if (log)
-    Logging::enable_logging();
-
-  // Run test with selected GC type and parameters
-  tree_transform::run_test(gc_type, depth, transforms);
-
+  DISPATCH_REGION(rt, test, depth, transforms);
+  
   return 0;
 }
 
 int main(int argc, char** argv)
 {
-  opt::Opt opt(argc, argv);
-
   run_benchmark(argc, argv);
   return 0;
 }
