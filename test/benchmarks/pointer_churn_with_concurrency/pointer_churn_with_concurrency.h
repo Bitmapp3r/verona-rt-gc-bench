@@ -42,10 +42,10 @@ namespace pointer_churn_with_concurrency
     // Trace function for the trace GC
     void trace(ObjectStack& st) const
     {
-      for (size_t i = 0; i < MAX_OUT_EDGES; i++)
+      for (auto edge : edges)
       {
-        if (edges[i] != nullptr)
-          st.push(edges[i]);
+        if (edge != nullptr)
+          st.push(edge);
       }
     }
   };
@@ -96,11 +96,11 @@ namespace pointer_churn_with_concurrency
     reachable.push_back(node);
 
     // Recursively visit all edges
-    for (size_t i = 0; i < MAX_OUT_EDGES; i++)
+    for (auto & edge : node->edges)
     {
-      if (node->edges[i] != nullptr)
+      if (edge != nullptr)
       {
-        find_reachable_nodes(node->edges[i], reachable);
+        find_reachable_nodes(edge, reachable);
       }
     }
   }
@@ -241,7 +241,7 @@ namespace pointer_churn_with_concurrency
     for (auto& cown : cowns)
     {
       when(cown)
-        << [&](auto c) {
+        << [=](auto c) {
             create_chain<RT>(num_nodes, inputSeed, c->region_id, c->region);  // Add <RT>
         };
     }
@@ -254,7 +254,7 @@ namespace pointer_churn_with_concurrency
       for (size_t cown_num = 0; cown_num < num_regions; cown_num++)
       {
         when(cowns[cown_num])
-          << [&](auto c) {
+          << [=](auto c) {
             perform_mutations<RT>(mutation_per_iter, rng, cown_num, c->region);  // Add <RT>
         };
       }

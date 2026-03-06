@@ -8,6 +8,8 @@
 #include <random>
 #include <vector>
 #include <verona.h>
+#include <cpp/when.h>
+#include <debug/harness.h>
 
 namespace reproduction
 {
@@ -88,6 +90,14 @@ namespace reproduction
 
   int Organism::counter = 0;
 
+  class Species {
+    // this is the cown
+  public:
+    Organism* root;
+    int gen = 0;
+    Species(RegionType rt) {};
+    ~Species() {region_release(root);}
+  };
   // ============================================================
   // Tree creation
   // ============================================================
@@ -121,10 +131,11 @@ namespace reproduction
     // child takes over pos->next position
     child->next = pos->next;
 
-    if constexpr (rt == RegionType::Rc)
+    if constexpr (rt == RegionType::Rc) {
       // incref(child->next);   // preserve reference
+    }
 
-      pos->next = child;
+    pos->next = child;
   }
 
   template<RegionType rt>
@@ -176,46 +187,50 @@ namespace reproduction
   // Test driver
   // ============================================================
 
+  using namespace verona::cpp;
+
   template<RegionType rt>
   void run_test(int generations, int killPercent, int popSize, size_t seed = 0)
   {
-    auto* root = new (rt) Organism();
-
-    {
-      UsingRegion rr(root);
-
-      // Build initial ring
-      Organism* first = make_organism();
-      root->next = first;
-
-      Organism* cur = first;
-
-      for (int i = 0; i < popSize - 1; i++)
+    
+    auto species1 = make_cown<Species>(rt);
+    when(species1) << [=](auto s) {
+      s->root = new (rt) Organism();
       {
-        auto* n = make_organism();
-        cur->next = n;
-        cur = n;
+        UsingRegion rr(s->root);
+
+        // Build initial ring
+        Organism* first = make_organism();
+        s->root->next = first;
+
+        Organism* cur = first;
+
+        for (int i = 0; i < popSize - 1; i++)
+        {
+          auto* n = make_organism();
+          cur->next = n;
+          cur = n;
+        }
+
+        cur->next = first;
+        if constexpr (rt == RegionType::Rc)
+          incref(first);
+
+        // std::cout << "Initial region size: " << debug_size() << "\n";
       }
-
-      cur->next = first;
-      if constexpr (rt == RegionType::Rc)
-        incref(first);
-
-      // std::cout << "Initial region size: " << debug_size() << "\n";
-    }
+    };
 
     if (seed == 0)
       seed = std::random_device{}();
     std::mt19937 gen{static_cast<std::mt19937::result_type>(seed)};
     std::uniform_int_distribution<int> roulette(1, 100);
 
-    {
-      UsingRegion rr(root);
-
-      for (int g = 0; g < generations; g++)
-      {
-        Organism* prev = root->next;
-        Organism* cur = prev->next;
+    for (int g = 0; g < generations; g++) {
+      when(species1) << [=](auto s) mutable {
+        // KILL PHASE
+        UsingRegion rr(s->root);
+        Organism* prev = s->root->next;
+        Organism* cur  = prev->next;
 
         int kills = 0;
 
@@ -237,18 +252,21 @@ namespace reproduction
           }
         }
 
-        region_collect();
+        std::cout << "KILL PHASE: "
+                  << "Region " << s->root
+                  << " Gen " << s->gen
+                   << " kills=" << kills
+                   << " size=" << debug_size()
+                   << "\n";
+      }; 
+      when(species1) << [=](auto s) mutable {
+        UsingRegion rr(s->root);
 
-        // std::cout << "Gen " << g
-        //           << " kills=" << kills
-        //           << " size=" << debug_size()
-        //           << "\n";
-
-        // ---- Reproduction phase ----
+         // ---- Reproduction phase ----
         int births = (killPercent * popSize) / 100;
 
-        Organism* p1 = root->next;
-        Organism* p2 = root->next;
+        Organism* p1 = s->root->next;
+        Organism* p2 = s->root->next;
 
         for (int i = 0; i < births; i++)
         {
@@ -258,10 +276,13 @@ namespace reproduction
           auto* child = Organism::reproduce(p1, p2);
           link_after<rt>(p2, child);
         }
+        
+        std::cout << "REPRODUCTION PHASE: " 
+                  << "Region " << s->root 
+                  << " size=" << debug_size() << "\n";
+        s->gen++;
+      };
 
-        // std::cout << "After reproduction size="
-        //           << debug_size() << "\n";
-      }
     }
   }
 } // namespace reproduction

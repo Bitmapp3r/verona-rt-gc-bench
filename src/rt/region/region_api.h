@@ -138,9 +138,14 @@ namespace verona::rt::api
       auto expected = RegionBase::Closed;
       
       // std::memory_order_acquire ensures we see all memory writes from the thread that closed it.
+      bool once = true;
       while (!md->state.compare_exchange_weak(expected, RegionBase::Open, std::memory_order_acquire)) {
         // If CAS fails, 'expected' is updated to the current state (Open or Collecting)
         snmalloc::Aal::pause();
+        if (once) {
+          std::cout << "opening region but region is already open (probably GCing)\n";
+          once = false;
+        }
         expected = RegionBase::Closed; // Reset for the next attempt
       }
       // Successfully in Open state.
@@ -151,9 +156,9 @@ namespace verona::rt::api
       
       // If it's not Closed, we fail immediately and return false.
       if (!md->state.compare_exchange_strong(expected, RegionBase::Collecting, std::memory_order_acquire)) {
-        Logging::cout() << "Failed to open for GC. State was: " 
+        std::cout << "Failed to open for GC. State was: " 
                         << (expected == RegionBase::Open ? "Open" : "Collecting") << "\n";
-        return false; 
+        return false;   
       }
       // Successfully in Collecting state.
     }
@@ -200,6 +205,8 @@ namespace verona::rt::api
 
 inline bool check_gc_condition(Object* o);
 
+inline size_t debug_size();
+
 inline void schedule_gc(Object* entry) {
     auto reg = entry->get_region();
     
@@ -210,9 +217,7 @@ inline void schedule_gc(Object* entry) {
 
     auto gc_task = [entry]() {
       RegionBase* reg = entry->get_region();
-      if (!check_gc_condition(entry)) {
-        goto task_dec;
-      }
+      
       // Check if region was killed while we were sitting in the scheduler queue
       if (reg->isAlive.load(std::memory_order_acquire)) {
         
@@ -220,10 +225,14 @@ inline void schedule_gc(Object* entry) {
         
         // rr.isOpen must be populated by the return value of open_region
         if (rr.isOpen) {
-          region_collect();
+          if (check_gc_condition(entry)) {
+            std::cout << "RUNNING GC\n";
+            region_collect();
+            std::cout << "size after GCing: " <<  debug_size() << "\n";          
+          }
           // Region is automatically closed by rr destructor here
         } else {
-          Logging::cout() << "GC Task aborted: Region was busy.\n";
+          Logging::cout() << "GC Task aborted: Region was busy. Should probably reschedule?\n";
         }
       }
 
@@ -244,7 +253,7 @@ task_dec:
     
     // Increment the refcount BEFORE handing it off to the scheduler
     reg->task_inc();
-    Scheduler::schedule(gc_work, false);
+    Scheduler::schedule(gc_work, true);
   }
 
 
@@ -294,7 +303,7 @@ task_dec:
     }
 
     // Schedule GC after a normal behavior if conditions are met
-    if (forWork && check_gc_condition(entry)) {
+    if (forWork) {
       schedule_gc(entry);
     }
     
@@ -464,7 +473,7 @@ task_dec:
   }
 
   inline void set_entry_point(Object* o)
-  {
+  { 
     switch (Region::get_type(RegionContext::get_region()))
     {
       case RegionType::Trace:

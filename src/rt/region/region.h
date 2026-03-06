@@ -222,7 +222,7 @@ namespace verona::rt
     {
       Logging::cout() << "logical release internal on object; " <<  o << "\n";
       auto r = o->get_region();
-      r->isAlive.store(false, std::memory_order_acq_rel);
+      r->isAlive.store(false, std::memory_order_release);
 
       if (r->task_dec()) {
         Logging::cout() << "physically releasing sub region\n";
