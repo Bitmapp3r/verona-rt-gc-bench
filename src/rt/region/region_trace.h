@@ -256,10 +256,8 @@ namespace verona::rt
         reg->closes_since_gc = 0;
         return true;
       }
-  
-      reg->closes_since_gc++;
-      std::cout << "GC CONDITION FALSE 3 " << reg->closes_since_gc << "\n";
-  
+
+      reg->closes_since_gc++;  
       return false;
     }
 

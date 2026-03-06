@@ -138,9 +138,14 @@ namespace verona::rt::api
       auto expected = RegionBase::Closed;
       
       // std::memory_order_acquire ensures we see all memory writes from the thread that closed it.
+      bool once = true;
       while (!md->state.compare_exchange_weak(expected, RegionBase::Open, std::memory_order_acquire)) {
         // If CAS fails, 'expected' is updated to the current state (Open or Collecting)
         snmalloc::Aal::pause();
+        if (once) {
+          std::cout << "opening region but region is already open (probably GCing)\n";
+          once = false;
+        }
         expected = RegionBase::Closed; // Reset for the next attempt
       }
       // Successfully in Open state.
@@ -151,9 +156,9 @@ namespace verona::rt::api
       
       // If it's not Closed, we fail immediately and return false.
       if (!md->state.compare_exchange_strong(expected, RegionBase::Collecting, std::memory_order_acquire)) {
-        Logging::cout() << "Failed to open for GC. State was: " 
+        std::cout << "Failed to open for GC. State was: " 
                         << (expected == RegionBase::Open ? "Open" : "Collecting") << "\n";
-        return false; 
+        return false;   
       }
       // Successfully in Collecting state.
     }
@@ -219,6 +224,7 @@ inline void schedule_gc(Object* entry) {
         
         // rr.isOpen must be populated by the return value of open_region
         if (rr.isOpen) {
+          std::cout << "RUNNING GC\n";
           region_collect();
           // Region is automatically closed by rr destructor here
         } else {
@@ -248,6 +254,7 @@ task_dec:
 
 
   inline bool check_gc_condition(Object* o) {
+    return true;
     assert(o->debug_is_iso());
     auto md = o->get_region();
     switch (Region::get_type(md)) {

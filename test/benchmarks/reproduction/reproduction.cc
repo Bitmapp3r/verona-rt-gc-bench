@@ -14,6 +14,8 @@
 #  define EXPORT
 #endif
 
+void run_test_RC(int a, int b, size_t c) ;
+
 extern "C" EXPORT int run_benchmark(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
@@ -31,10 +33,28 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
     opt.is<size_t>("--seed", 42);
   
   RegionType rt = stringToRegionType(argv[0]);
-  // dispatch(rt, [seed](auto regionType) {
-  //   reproduction::run_test<decltype(regionType)::value>(101, 50, seed);
-  // });
+
+  SystematicTestHarness harness(argc, argv);
+  harness.run(run_test_RC, 20, 50, seed);
+  //size_t cores = 6;
+  //Scheduler& sched = Scheduler::get();
+  //sched.init(cores);
+  ///sched.set_fair(false);
+  
+  //reproduction::run_test<decltype(rt)>(101, 50, 1000,seed);
+  //run_test_RC(101, 50, seed);
+  //sched.run();
+  //  test();
+  puts("done");
+  
+  //dispatch(rt, [seed](auto regionType) {
+   // reproduction::run_test<decltype(regionType)::value>(101, 50, seed);
+  //});
   return 0;
+}
+
+void run_test_RC(int a, int b, size_t c) {
+  reproduction::run_test<RegionType::Trace>(a, b, c);
 }
 
 int main(int argc, char **argv) {
