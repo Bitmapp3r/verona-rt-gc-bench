@@ -243,7 +243,7 @@ task_dec:
     
     // Increment the refcount BEFORE handing it off to the scheduler
     reg->task_inc();
-    Scheduler::schedule(gc_work, false);
+    Scheduler::schedule(gc_work, true);
   }
 
 
@@ -426,7 +426,7 @@ task_dec:
   }
 
   inline void set_entry_point(Object* o)
-  {
+  { 
     switch (Region::get_type(RegionContext::get_region()))
     {
       case RegionType::Trace:
