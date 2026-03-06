@@ -116,10 +116,10 @@ namespace pointer_churn
 
     while (NUM_MUTATIONS_REM > 0)
     {
-      std::cout << "\n" << std::string(60, '=') << "\n";
-      std::cout << "  REGION #" << region_number++
-                << " | Mutations Remaining: " << NUM_MUTATIONS_REM << "\n";
-      std::cout << std::string(60, '=') << "\n\n";
+      // std::cout << "\n" << std::string(60, '=') << "\n";
+      // std::cout << "  REGION #" << region_number++
+      //           << " | Mutations Remaining: " << NUM_MUTATIONS_REM << "\n";
+      // std::cout << std::string(60, '=') << "\n\n";
       // Open new region and setup the graph
       auto* root = new (RT) GraphNode;
       root->id = 0;
@@ -159,8 +159,8 @@ namespace pointer_churn
 
           if (reachableNodes.size() == 1)
           {
-            std::cout << "\n    Only root node remaining, closing and "
-                         "releasing region...\n";
+            // std::cout << "\n    Only root node remaining, closing and "
+            //              "releasing region...\n";
             break;
           }
 
@@ -198,21 +198,21 @@ namespace pointer_churn
               {
                 decref(oldEdgeDstNode); // Ref count adjustment for RC
               }
-              std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": "
-                        << oldId << " -> " << newEdgeDstNode->id << "\n";
+              // std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": "
+              //           << oldId << " -> " << newEdgeDstNode->id << "\n";
             }
             else
             {
-              std::cout << "  [ADD]    Node " << edgeSrcNode->id << " -> Node "
-                        << newEdgeDstNode->id << "\n";
+              // std::cout << "  [ADD]    Node " << edgeSrcNode->id << " -> Node "
+              //           << newEdgeDstNode->id << "\n";
             }
           }
           else // Remove edge
           {
             if (oldEdgeDstNode == nullptr)
             {
-              std::cout << "  [SKIP]   No edge to remove from edge index "
-                        << edgeIdx << " of Node " << edgeSrcNode->id << "\n";
+              // std::cout << "  [SKIP]   No edge to remove from edge index "
+              //           << edgeIdx << " of Node " << edgeSrcNode->id << "\n";
             }
             else
             {
@@ -223,8 +223,8 @@ namespace pointer_churn
               {
                 decref(oldEdgeDstNode); // Ref count adjustment for RC
               }
-              std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " X-> Node "
-                        << oldId << "\n";
+              // std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " X-> Node "
+              //           << oldId << "\n";
             }
           }
 
@@ -242,10 +242,10 @@ namespace pointer_churn
             }
             reachableNodes.clear();
             find_reachable_nodes(root, reachableNodes);
-            std::cout << "  " << std::string(56, '-') << "\n";
-            std::cout << "  [REGION STATS] Allocated: " << debug_size()
-                      << " | Reachable: " << reachableNodes.size() << "\n";
-            std::cout << "  " << std::string(56, '-') << "\n\n";
+            // std::cout << "  " << std::string(56, '-') << "\n";
+            // std::cout << "  [REGION STATS] Allocated: " << debug_size()
+            //           << " | Reachable: " << reachableNodes.size() << "\n";
+            // std::cout << "  " << std::string(56, '-') << "\n\n";
           }
 
           NUM_MUTATIONS_REM--;
@@ -261,10 +261,10 @@ namespace pointer_churn
         }
         reachableNodes.clear();
         find_reachable_nodes(root, reachableNodes);
-        std::cout << "\n  " << std::string(56, '-') << "\n";
-        std::cout << "  [REGION FINAL] Allocated: " << debug_size()
-                  << " | Reachable: " << reachableNodes.size() << "\n";
-        std::cout << "  " << std::string(56, '-') << "\n\n\n";
+        // std::cout << "\n  " << std::string(56, '-') << "\n";
+        // std::cout << "  [REGION FINAL] Allocated: " << debug_size()
+        //           << " | Reachable: " << reachableNodes.size() << "\n";
+        // std::cout << "  " << std::string(56, '-') << "\n\n\n";
       }
       // Release region and repeat if we still have mutations to perform
       region_release(root);

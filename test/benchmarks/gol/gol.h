@@ -71,6 +71,16 @@ namespace gol
   template<RegionType rt>
   void run_test(int size, int generations)
   {
+    std::cout << "LOOOK FOR THISSSSSSSSSSSS";
+    std::cout << "[gol] Using region type: ";
+    switch(rt) {
+      case RegionType::Trace: std::cout << "Trace"; break;
+      case RegionType::Arena: std::cout << "Arena"; break;
+      case RegionType::Rc:    std::cout << "Rc"; break;
+      case RegionType::SemiSpace: std::cout << "SemiSpace"; break;
+      default: std::cout << "Unknown"; break;
+    }
+    std::cout << std::endl;
     // Use our new container root
     auto* root = new (rt) SimRoot();
 
@@ -96,8 +106,8 @@ namespace gol
 
       root->live_cells = current_grid;
 
-      std::cout << "Game of Life initialized. Grid: " << size << "x" << size
-                << "\n";
+      // std::cout << "Game of Life initialized. Grid: " << size << "x" << size
+      //           << "\n";
       // check(debug_size() == 6);
 
       for (int gen = 0; gen < generations; gen++)
@@ -154,7 +164,7 @@ namespace gol
           // check(heap_size == actual_alive_count + 1);
         }
       }
-      std::cout << "Simulation survived " << generations << " generations.\n";
+      // std::cout << "Simulation survived " << generations << " generations.\n";
     }
     region_release(root);
     // Skip debug_check_empty() for benchmarking

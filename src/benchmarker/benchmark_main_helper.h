@@ -35,6 +35,7 @@ RegionType parse_region_type(opt::Opt& opt)
   else if (opt.has("--rc"))
     return RegionType::Rc;
   else
+    std::cout << "Warning: no region specified, defaulting to Trace\n";
     return RegionType::Trace;
 }
 

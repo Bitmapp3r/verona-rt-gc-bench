@@ -252,8 +252,8 @@ void run_test(int gridsize, int numsteps, int numwalkers)
       int dead = numInaccessible(root, gridsize);
       region_collect();
       int alive = debug_size();
-      std::cout << "unreachable: " << dead << ", reachable: " << alive
-                << std::endl;
+      // std::cout << "unreachable: " << dead << ", reachable: " << alive
+      //           << std::endl;
       check(
         dead + alive ==
         gridsize * gridsize); // <<< thats where testing actually happens.

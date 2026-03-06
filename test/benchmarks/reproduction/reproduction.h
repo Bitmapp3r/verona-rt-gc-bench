@@ -184,6 +184,11 @@ namespace reproduction
   template<RegionType rt>
   void run_test(int generations, int killPercent, int popSize, size_t seed = 0)
   {
+    // std::cout << "[reproduction] Starting: generations=" << generations
+    //           << " killPercent=" << killPercent
+    //           << " popSize=" << popSize
+    //           << " seed=" << seed << std::endl;
+
     auto* root = new (rt) Organism();
 
     {
@@ -243,6 +248,13 @@ namespace reproduction
 
         region_collect();
 
+        // if (g % 10 == 0 || g == generations - 1)
+        // {
+        //   std::cout << "[reproduction] Gen " << g << "/" << generations
+        //             << " kills=" << kills
+        //             << " region_size=" << debug_size() << std::endl;
+        // }
+
         Logging::cout() << "Gen " << g
                   << " kills=" << kills
                   << " size=" << debug_size()
@@ -267,5 +279,7 @@ namespace reproduction
                   << debug_size() << "\n";
       }
     }
+
+    // std::cout << "[reproduction] Complete" << std::endl;
   }
 } // namespace reproduction

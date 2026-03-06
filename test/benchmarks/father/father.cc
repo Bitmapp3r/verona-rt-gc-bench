@@ -4,6 +4,7 @@
 
 #include <debug/harness.h>
 #include <test/opt.h>
+#include <iostream>
 #include <util/gc_benchmark.h>
 #include "../benchmarker/benchmark_main_helper.h"
 #include "region/region_base.h"
@@ -35,61 +36,61 @@ extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
   RegionType rt = parse_region_type(opt);
 
   std::cout << "Father benchmark - mixed workload test\n\n";
-  
-  // Parse benchmark parameters  
-  size_t iterations = opt.is<size_t>("--iterations", 10);
-  
+
+  // Parse benchmark parameters
+  size_t iterations = opt.is<size_t>("--iterations", 5);
+
   // Set up workloads: 1 GOL + 1 grid_walkers
   std::vector<std::pair<std::string, std::vector<std::string>>> workloads;
 
-//   // Grid walkers workload  
-//   workloads.push_back({
-//     "test\\benchmarks\\grid_walkers\\con-library\\Debug\\benchmarks-con-grid_walkers_lib.dll",
-//     {"--grid", "5", "--walkers", "3", "--steps", "3"}
-//   });
-  
+//   // Grid walkers workload
+  // workloads.push_back({
+  //   "test\\benchmarks\\grid_walkers\\con-library\\Debug\\benchmarks-con-grid_walkers_lib.dll",
+  //   {}
+  // });
+
   workloads.push_back({
     "test\\benchmarks\\pointer_churn\\con-library\\Debug\\benchmarks-con-pointer_churn_lib.dll",
-    {"-n", "12", "-m", "1000"}
+    {"test\\benchmarks\\pointer_churn\\con-library\\Debug\\benchmarks-con-pointer_churn_lib.dll", "--arena", "--m", "1000"}
+  });
+  //Best Arena, Worst RC
+
+  // GOL workload
+  workloads.push_back({
+    "test\\benchmarks\\gol\\con-library\\Debug\\benchmarks-con-gol_lib.dll",
+    {".\test\benchmarks\gol\con-library\Debug\benchmarks-con-gol_lib.dll", "--arena", "--generations", "10"}
+  });
+  // Best RC/Arena, Worst Trace
+
+  workloads.push_back({
+    "test\\benchmarks\\reproduction\\con-library\\Debug\\benchmarks-con-reproduction_lib.dll",
+    {"test\\benchmarks\\reproduction\\con-library\\Debug\\benchmarks-con-reproduction_lib.dll","--arena", "--generations", "300", "--killPercent", "50", "--popSize", "100"}
+    //Best Trace, Worst Arena
   });
 
-//   // GOL workload
-//   workloads.push_back({
-//     "test\\benchmarks\\gol\\con-library\\Debug\\benchmarks-con-gol_lib.dll",
-//     {"--rows", "5", "--cols", "5", "--gens", "3"}
-//   });
+  size_t num_regions = 1 ;
 
-//   workloads.push_back({
-//     "test\\benchmarks\\gol\\con-library\\Debug\\benchmarks-con-gol_lib.dll",
-//     {"--rows", "5", "--cols", "5", "--gens", "3"}
-//   });
-  
-  
-  
-  
-  size_t num_regions = workloads.size();
-  
   SystematicTestHarness harness(argc, argv);
-  
+
   if (rt == RegionType::Trace)
   {
-    harness.run([&]() { 
-      father::run_test<RegionType::Trace>(workloads, num_regions, iterations); 
+    harness.run([&]() {
+      father::run_test<RegionType::Trace>(workloads, num_regions, iterations);
     });
   }
   else if (rt == RegionType::Rc)
   {
-    harness.run([&]() { 
-      father::run_test<RegionType::Rc>(workloads, num_regions, iterations); 
+    harness.run([&]() {
+      father::run_test<RegionType::Rc>(workloads, num_regions, iterations);
     });
   }
   else if (rt == RegionType::Arena)
   {
-    harness.run([&]() { 
-      father::run_test<RegionType::Arena>(workloads, num_regions, iterations); 
+    harness.run([&]() {
+      father::run_test<RegionType::Arena>(workloads, num_regions, iterations);
     });
   }
-  
+
   return 0;
 }
 
