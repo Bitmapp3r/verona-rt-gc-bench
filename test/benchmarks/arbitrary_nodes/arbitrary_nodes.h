@@ -105,6 +105,7 @@ namespace arbitrary_nodes
     return result;
   }
 
+  template<RegionType rt>
   inline void fully_connect(const std::vector<Node*>& nodes)
   // If you have an even number of nodes, you will have a
   // Euclidean graph. Euclidean graphs will return to the
@@ -127,6 +128,10 @@ namespace arbitrary_nodes
           continue;
 
         u->neighbours.insert(v);
+        if constexpr (rt == RegionType::Rc)
+        {
+          incref(v);
+        }
       }
     }
   }
@@ -151,6 +156,8 @@ namespace arbitrary_nodes
         UsingRegion ur(graphRegion);
         Node* bridge = new Node();
         graphRegion->bridge = bridge;
+        // For RC: the initial rc=1 from `new Node()` covers the
+        // graphRegion->bridge pointer — no explicit incref needed.
 
         // local vector of nodes in this region
         std::vector<Node*> all_nodes;
@@ -162,7 +169,21 @@ namespace arbitrary_nodes
           all_nodes.push_back(node);
         }
 
-        fully_connect(all_nodes);
+        fully_connect<rt>(all_nodes);
+
+        // For RC: non-bridge nodes were created with rc=1, but that initial
+        // count doesn't correspond to any in-region pointer (only the local
+        // all_nodes vector held them). fully_connect added incref for every
+        // neighbour edge, so the initial rc=1 is surplus. Decref once to
+        // compensate. Bridge is fine — its initial rc=1 covers
+        // graphRegion->bridge.
+        if constexpr (rt == RegionType::Rc)
+        {
+          for (size_t i = 1; i < all_nodes.size(); i++)
+          {
+            decref(all_nodes[i]);
+          }
+        }
       }
 
       graphRegions.push_back(ptr);
@@ -171,6 +192,7 @@ namespace arbitrary_nodes
     return graphRegions;
   }
 
+  template<RegionType rt>
   bool removeArc(Node* src, Node* dst)
   {
     if (!src || !dst)
@@ -179,14 +201,19 @@ namespace arbitrary_nodes
     if (src->neighbours.find(dst) != src->neighbours.end())
     {
       src->neighbours.erase(dst);
+      // For RC: do NOT decref here. If decref causes rc to hit 0, dst is
+      // immediately freed by dealloc_object — but traverse() returns dst as
+      // the next cur, causing use-after-free. Decrefs are deferred and
+      // applied after the traversal loop completes.
       return true;
     }
     return false;
   }
 
+  template<RegionType rt>
   Node* traverse(Node* cur, Node* dst)
   {
-    if (removeArc(cur, dst))
+    if (removeArc<rt>(cur, dst))
     {
       std::cout << "Traversed from " << cur << " to " << dst << std::endl;
       return dst;
@@ -194,18 +221,41 @@ namespace arbitrary_nodes
     return nullptr;
   }
 
+  template<RegionType rt>
   void traverse_region(GraphRegion* graphRegion)
   {
     UsingRegion ur(graphRegion);
     std::cout << "Traversing region" << std::endl;
     Node* cur = graphRegion->bridge;
 
+    // For RC: collect removed edge targets so we can decref them after
+    // the walk is done, avoiding use-after-free from immediate deallocation.
+    std::vector<Node*> removed_targets;
+
     while (cur && cur->neighbours.size() > 0)
     {
       std::cout << "Current node: " << cur << " has " << cur->neighbours.size()
                 << " outgoing edges" << std::endl;
       Node* dst = random_element(cur->neighbours);
-      cur = traverse(cur, dst);
+      if constexpr (rt == RegionType::Rc)
+      {
+        removed_targets.push_back(dst);
+      }
+      cur = traverse<rt>(cur, dst);
+    }
+
+    // Apply deferred decrefs now that traversal is complete.
+    if constexpr (rt == RegionType::Rc)
+    {
+      for (Node* target : removed_targets)
+      {
+        decref(target);
+      }
+    }
+
+    if constexpr (rt != RegionType::Arena)
+    {
+      region_collect();
     }
   }
 
@@ -219,7 +269,7 @@ namespace arbitrary_nodes
       for (cown_ptr<GraphRegionCown> graphRegionCown : graphRegions)
       {
         when(graphRegionCown)
-          << [&](auto c) { traverse_region(c->graphRegion); };
+          << [&](auto c) { traverse_region<rt>(c->graphRegion); };
       }
     }
   }
