@@ -204,6 +204,8 @@ namespace verona::rt::api
 
 inline bool check_gc_condition(Object* o);
 
+inline size_t debug_size();
+
 inline void schedule_gc(Object* entry) {
     auto reg = entry->get_region();
     
@@ -214,9 +216,7 @@ inline void schedule_gc(Object* entry) {
 
     auto gc_task = [entry]() {
       RegionBase* reg = entry->get_region();
-      if (!check_gc_condition(entry)) {
-        goto task_dec;
-      }
+      
       // Check if region was killed while we were sitting in the scheduler queue
       if (reg->isAlive.load(std::memory_order_acquire)) {
         
@@ -224,11 +224,14 @@ inline void schedule_gc(Object* entry) {
         
         // rr.isOpen must be populated by the return value of open_region
         if (rr.isOpen) {
-          std::cout << "RUNNING GC\n";
-          region_collect();
+          if (check_gc_condition(entry)) {
+            std::cout << "RUNNING GC\n";
+            region_collect();
+            std::cout << "size after GCing: " <<  debug_size() << "\n";          
+          }
           // Region is automatically closed by rr destructor here
         } else {
-          Logging::cout() << "GC Task aborted: Region was busy.\n";
+          Logging::cout() << "GC Task aborted: Region was busy. Should probably reschedule?\n";
         }
       }
 
@@ -254,7 +257,6 @@ task_dec:
 
 
   inline bool check_gc_condition(Object* o) {
-    return true;
     assert(o->debug_is_iso());
     auto md = o->get_region();
     switch (Region::get_type(md)) {
@@ -299,7 +301,7 @@ task_dec:
     }
 
     // Schedule GC after a normal behavior if conditions are met
-    if (forWork && check_gc_condition(entry)) {
+    if (forWork) {
       schedule_gc(entry);
     }
     

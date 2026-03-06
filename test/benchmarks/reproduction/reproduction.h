@@ -254,7 +254,7 @@ namespace reproduction
 
         std::cout << "KILL PHASE: "
                   << "Region " << s->root
-                  << "Gen " << s->gen
+                  << " Gen " << s->gen
                    << " kills=" << kills
                    << " size=" << debug_size()
                    << "\n";
@@ -279,7 +279,7 @@ namespace reproduction
         
         std::cout << "REPRODUCTION PHASE: " 
                   << "Region " << s->root 
-                  << "size=" << debug_size() << "\n";
+                  << " size=" << debug_size() << "\n";
         s->gen++;
       };
 

@@ -54,7 +54,7 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
 }
 
 void run_test_RC(int a, int b, size_t c) {
-  reproduction::run_test<RegionType::Trace>(a, b, c);
+  reproduction::run_test<RegionType::Rc>(a, b, c);
 }
 
 int main(int argc, char **argv) {
