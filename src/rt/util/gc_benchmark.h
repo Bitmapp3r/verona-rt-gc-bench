@@ -157,12 +157,39 @@ namespace verona::rt::api
 
   public:
     /**
+     * If non-null, run_benchmark reads wall-clock time from here instead
+     * of timing test_fn externally. This lets callers measure only an
+     * inner portion of test_fn (e.g. after harness/scheduler setup).
+     */
+    uint64_t* wall_time_ns_out = nullptr;
+
+    /**
+     * Wrap a function with internal wall-clock timing and write elapsed
+     * nanoseconds to wall_time_ns_out when configured.
+     */
+    std::function<void()> timed(std::function<void()> fn)
+    {
+      return [this, fn]() {
+        auto t_start = std::chrono::high_resolution_clock::now();
+        fn();
+        auto t_end = std::chrono::high_resolution_clock::now();
+        if (wall_time_ns_out != nullptr)
+        {
+          *wall_time_ns_out = std::chrono::duration_cast<std::chrono::nanoseconds>(
+            t_end - t_start)
+                               .count();
+        }
+      };
+    }
+
+    /**
      * Run a test function multiple times and collect GC metrics.
      *
      * @param test_fn Function that runs one iteration of the test
      * @param num_runs Number of times to run the test (default 5)
      * @param warmup_runs Number of warmup iterations before collecting (default
      * 0)
+     * @param test_name Name used for CSV output and summary
      */
     void run_benchmark(
       std::function<void()> test_fn,
@@ -320,10 +347,21 @@ namespace verona::rt::api
         auto prev = get_gc_callback();
         set_gc_callback(&callback);
 
-        auto t_start = std::chrono::high_resolution_clock::now();
-        test_fn();
-        auto t_end = std::chrono::high_resolution_clock::now();
-        run_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
+        // If wall_time_ns_out is provided, test_fn measures internally
+        // and writes elapsed nanoseconds there. Otherwise measure test_fn.
+        if (wall_time_ns_out)
+        {
+          *wall_time_ns_out = 0;
+          test_fn();
+          run_time_ns = *wall_time_ns_out;
+        }
+        else
+        {
+          auto t_start = std::chrono::high_resolution_clock::now();
+          test_fn();
+          auto t_end = std::chrono::high_resolution_clock::now();
+          run_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(t_end - t_start).count();
+        }
 
         // Restore previous callback
         set_gc_callback(prev);
