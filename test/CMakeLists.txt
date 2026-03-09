@@ -89,6 +89,9 @@ foreach(TEST_MODE "sys" "con")
       set(VARIANT_TESTNAME "${TESTNAME}${VARIANT_SUFFIX}")
       
       if (${TEST_CATEGORY} STREQUAL "benchmarks")
+        # Benchmark targets always have benchmarking enabled
+        set(BENCHMARK_CATEGORY TRUE)
+
         # Create a base directory for this test
         set(TEST_BASE_DIR "${OUTPUT_PREFIX}/benchmarks/${TEST}")
         
@@ -138,6 +141,11 @@ foreach(TEST_MODE "sys" "con")
         add_dependencies(rt_tests ${target})
         target_link_libraries(${target} verona_rt)
         
+        # Benchmark targets always get benchmarking instrumentation
+        if (${TEST_CATEGORY} STREQUAL "benchmarks")
+          target_compile_definitions(${target} PRIVATE ENABLE_BENCHMARKING)
+        endif()
+
         # Apply sanitizer flags if needed
         if(NOT "${SANITIZER_VARIANT}" STREQUAL "normal")
           apply_sanitizer_flags(${target} ${SANITIZER_VARIANT})

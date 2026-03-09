@@ -8,6 +8,9 @@
 #include "region_rc.h"
 #include "region_semispace.h"
 #include "region_trace.h"
+#ifdef ENABLE_BENCHMARKING
+#include <test/measuretime.h>
+#endif
 
 namespace verona::rt
 {
@@ -99,6 +102,75 @@ namespace verona::rt
   {
     using T = RegionSemiSpace;
   };
+
+  /**
+   * Helper to capture stats, run an action, and report metrics.
+   * When ENABLE_BENCHMARKING is off, just executes the action directly.
+   */
+  template<typename Action>
+  inline void with_region_stats(
+    [[maybe_unused]] RegionBase* r,
+    [[maybe_unused]] const char* op_name,
+    Action&& action)
+  {
+#ifdef ENABLE_BENCHMARKING
+    RegionType type;
+    if (RegionTrace::is_trace_region(r))
+      type = RegionType::Trace;
+    else if (RegionArena::is_arena_region(r))
+      type = RegionType::Arena;
+    else if (RegionRc::is_rc_region(r))
+      type = RegionType::Rc;
+    else if (RegionSemiSpace::is_semispace_region(r))
+      type = RegionType::SemiSpace;
+    else
+      abort();
+
+    // Capture memory stats before operation
+    size_t mem_before = 0;
+    size_t obj_before = 0;
+    switch (type)
+    {
+      case RegionType::Trace:
+        mem_before = ((RegionTrace*)r)->get_current_memory_used();
+        obj_before = ((RegionTrace*)r)->get_region_size();
+        break;
+      case RegionType::Arena:
+        mem_before = ((RegionArena*)r)->get_current_memory_used();
+        obj_before = ((RegionArena*)r)->get_region_size();
+        break;
+      case RegionType::Rc:
+        mem_before = ((RegionRc*)r)->get_current_memory_used();
+        obj_before = ((RegionRc*)r)->get_region_size();
+        break;
+      case RegionType::SemiSpace:
+        mem_before = ((RegionSemiSpace*)r)->get_current_memory_used();
+        for (auto p : *((RegionSemiSpace*)r))
+        {
+          UNUSED(p);
+          obj_before++;
+        }
+        break;
+    }
+
+    MeasureTime m(true);
+    action();
+    uint64_t duration_ns = m.get_time().count();
+
+    // Report via callback if set
+    if (get_gc_callback() != nullptr)
+    {
+      (*get_gc_callback())(duration_ns, type, mem_before, obj_before);
+    }
+    else
+    {
+      Logging::cout() << op_name << " time: " << duration_ns << " ns"
+                      << Logging::endl;
+    }
+#else
+    action();
+#endif // ENABLE_BENCHMARKING
+  }
 
   class Region
   {

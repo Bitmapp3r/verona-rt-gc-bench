@@ -6,8 +6,6 @@
 #include "region.h"
 
 #include <debug/logging.h>
-#include <functional>
-#include <test/measuretime.h>
 
 namespace verona::rt::api
 {
@@ -23,33 +21,12 @@ namespace verona::rt::api
       };
 
       RegionFrame* top;
-      std::function<void(uint64_t, RegionType, size_t, size_t)>* gc_callback;
 
     public:
       static RegionContext& get_region_context()
       {
         static thread_local RegionContext context;
         return context;
-      }
-
-      /**
-       * Set a GC measurement callback for this thread's region context.
-       * Callback receives: duration_ns, region_type, memory_bytes, object_count
-       * Pass nullptr to disable collection and return to default logging.
-       */
-      static void set_gc_callback(
-        std::function<void(uint64_t, RegionType, size_t, size_t)>* callback)
-      {
-        get_region_context().gc_callback = callback;
-      }
-
-      /**
-       * Get the current GC measurement callback, or nullptr if none is set.
-       */
-      static std::function<void(uint64_t, RegionType, size_t, size_t)>*
-      get_gc_callback()
-      {
-        return get_region_context().gc_callback;
       }
 
       static void push(Object* entry_point, RegionBase* region)
@@ -287,29 +264,9 @@ namespace verona::rt::api
   {
     assert(Region::get_type(RegionContext::get_region()) == RegionType::Rc);
 
-    // Capture memory before operation for metrics
-    size_t mem_before =
-      ((RegionRc*)RegionContext::get_region())->get_current_memory_used();
-    size_t obj_before =
-      ((RegionRc*)RegionContext::get_region())->get_region_size();
-
-    MeasureTime m(true);
-    RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
-
-    uint64_t duration_ns = m.get_time().count();
-    auto* callback = RegionContext::get_gc_callback();
-
-    if (callback != nullptr)
-    {
-      // Route measurement to callback (for testing/metrics gathering)
-      (*callback)(duration_ns, RegionType::Rc, mem_before, obj_before);
-    }
-    else
-    {
-      // Default logging behavior
-      Logging::cout() << "Decref time: " << duration_ns << " ns"
-                      << Logging::endl;
-    }
+    with_region_stats(RegionContext::get_region(), "Decref", [&]() {
+      RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
+    });
   }
 
   template<typename T = Object>
@@ -357,147 +314,39 @@ namespace verona::rt::api
   inline void region_collect()
   {
     RegionType type = Region::get_type(RegionContext::get_region());
+    Object* entry = RegionContext::get_entry_point();
 
-    // Capture memory before GC for metrics
-    size_t mem_before = 0;
-    size_t obj_before = 0;
-    switch (type)
-    {
-      case RegionType::Trace:
-        mem_before = ((RegionTrace*)RegionContext::get_region())
-                       ->get_current_memory_used();
-        for (auto p : *((RegionTrace*)RegionContext::get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-      case RegionType::Arena:
-        mem_before = ((RegionArena*)RegionContext::get_region())
-                       ->get_current_memory_used();
-        for (auto p : *((RegionArena*)RegionContext::get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-      case RegionType::Rc:
-        mem_before =
-          ((RegionRc*)RegionContext::get_region())->get_current_memory_used();
-        obj_before =
-          ((RegionRc*)RegionContext::get_region())->get_region_size();
-        break;
-      case RegionType::SemiSpace:
-        mem_before = ((RegionSemiSpace*)RegionContext::get_region())
-                       ->get_current_memory_used();
-        for (auto p : *((RegionSemiSpace*)RegionContext::get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-    }
+    if (type == RegionType::Arena)
+      return; // Arena has no GC to collect; skip measurement overhead.
 
-    MeasureTime m(true);
-
-    switch (type)
-    {
-      case RegionType::Trace:
-        // Other roots?
-        RegionTrace::gc(RegionContext::get_entry_point());
-        break;
-      case RegionType::Arena:
-        // Nothing to collect here!
-        break;
-      case RegionType::Rc:
-        RegionRc::gc_cycles(
-          RegionContext::get_entry_point(),
-          (RegionRc*)RegionContext::get_region());
-        break;
-      case RegionType::SemiSpace:
+    with_region_stats(RegionContext::get_region(), "Region collect", [&]() {
+      switch (type)
       {
-        auto* new_entry = RegionSemiSpace::gc(
-          RegionContext::get_entry_point(),
-          (RegionSemiSpace*)RegionContext::get_region());
-        RegionContext::get_entry_point() = new_entry;
-        break;
+        case RegionType::Trace:
+          RegionTrace::gc(entry);
+          break;
+        case RegionType::Rc:
+          RegionRc::gc_cycles(
+            entry,
+            (RegionRc*)RegionContext::get_region());
+          break;
+        case RegionType::SemiSpace:
+          RegionSemiSpace::gc(
+            entry,
+            (RegionSemiSpace*)RegionContext::get_region());
+          break;
+        default:
+          break;
       }
-    }
-
-    uint64_t duration_ns = m.get_time().count();
-    auto* callback = RegionContext::get_gc_callback();
-
-    if (callback != nullptr)
-    {
-      // Route measurement to callback (for testing/metrics gathering)
-      (*callback)(duration_ns, type, mem_before, obj_before);
-    }
-    else
-    {
-      // Default logging behavior
-      Logging::cout() << "Region GC/Dealloc time: " << duration_ns << " ns"
-                      << Logging::endl;
-    }
+    });
   }
 
   template<typename T = Object>
   inline void region_release(Object* r)
   {
-    RegionType type = Region::get_type(r->get_region());
-
-    // Capture memory before release for metrics
-    size_t mem_before = 0;
-    size_t obj_before = 0;
-    switch (type)
-    {
-      case RegionType::Trace:
-        mem_before = ((RegionTrace*)r->get_region())->get_current_memory_used();
-        for (auto p : *((RegionTrace*)r->get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-      case RegionType::Arena:
-        mem_before = ((RegionArena*)r->get_region())->get_current_memory_used();
-        for (auto p : *((RegionArena*)r->get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-      case RegionType::Rc:
-        mem_before = ((RegionRc*)r->get_region())->get_current_memory_used();
-        obj_before = ((RegionRc*)r->get_region())->get_region_size();
-        break;
-      case RegionType::SemiSpace:
-        mem_before =
-          ((RegionSemiSpace*)r->get_region())->get_current_memory_used();
-        for (auto p : *((RegionSemiSpace*)r->get_region()))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
-        break;
-    }
-
-    MeasureTime m(true);
-    Region::release(r);
-
-    uint64_t duration_ns = m.get_time().count();
-    auto* callback = RegionContext::get_gc_callback();
-
-    if (callback != nullptr)
-    {
-      // Route measurement to callback (for testing/metrics gathering)
-      (*callback)(duration_ns, type, mem_before, obj_before);
-    }
-    else
-    {
-      // Default logging behavior
-      Logging::cout() << "Region release time: " << duration_ns << " ns"
-                      << Logging::endl;
-    }
+    with_region_stats(r->get_region(), "Region release", [&]() {
+          Region::release(r);
+        });
   }
 
   /**

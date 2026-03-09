@@ -11,4 +11,7 @@ target_link_libraries(benchmarker
     PRIVATE ${CMAKE_DL_LIBS}
 )
 
+# Benchmarker always has benchmarking instrumentation enabled
+target_compile_definitions(benchmarker PRIVATE ENABLE_BENCHMARKING)
+
 target_compile_features(benchmarker PRIVATE cxx_std_17)
