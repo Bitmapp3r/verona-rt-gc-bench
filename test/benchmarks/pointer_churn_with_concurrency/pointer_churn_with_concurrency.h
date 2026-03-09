@@ -39,7 +39,6 @@ namespace pointer_churn_with_concurrency
     GraphNode* edges[MAX_OUT_EDGES] = {nullptr};
     size_t id;
 
-    // Trace function for the trace GC
     void trace(ObjectStack& st) const
     {
       for (auto edge : edges)
@@ -48,31 +47,31 @@ namespace pointer_churn_with_concurrency
           st.push(edge);
       }
     }
-  };
 
-  struct Region : public V<Region>
-  // This is a single region
-  // This holds just the bridge node of that region
-  {
-    GraphNode* bridge;
-
-    void trace(ObjectStack& st) const
+    // Relocate function for the semispace GC - updates pointers after objects
+    // are copied to the new semispace
+    void relocate(Object* (*fwd)(Object*))
     {
-      if (bridge != nullptr)
-        st.push(bridge);
+      for (auto& edge : edges)
+      {
+        if (edge != nullptr)
+          edge = (GraphNode*)fwd(edge);
+      }
     }
   };
 
   class RegionCown
   {
   public:
-    RegionCown(Region* region, size_t region_id) : region(region), region_id(region_id) {}
-    Region* region;
+    // The root GraphNode is the iso root of the region. The pointer to it
+    // is the region handle used for opening (UsingRegion) and releasing.
+    RegionCown(GraphNode* root, size_t region_id) : root(root), region_id(region_id) {}
+    GraphNode* root;
     size_t region_id;
 
     ~RegionCown()
     {
-      region_release(region);
+      region_release(root);
     }
   };
 
@@ -108,24 +107,32 @@ namespace pointer_churn_with_concurrency
   template<RegionType RT>
   cown_ptr<RegionCown> create_cown(size_t cown_num)
   {
-      Region* graphRegion = new (RT) Region();
-      auto cown = make_cown<RegionCown>(graphRegion, cown_num);
+      // new (RT) GraphNode() creates a new region with a GraphNode as the
+      // iso root. The returned pointer is both the root node and the region
+      // handle.
+      GraphNode* root = new (RT) GraphNode();
+      root->id = 0;
+      auto cown = make_cown<RegionCown>(root, cown_num);
       return cown;
   }
 
   template<RegionType RT>
-  void create_chain(size_t num_nodes, size_t inputSeed, size_t cown_num, Region*& graphRegion)
+  void create_chain(size_t num_nodes, size_t inputSeed, size_t cown_num, GraphNode* root)
   {
       std::cout << "\n" << std::string(60, '=') << "\n";
       std::cout << "  REGION #" << cown_num << "\n";
       std::cout << std::string(60, '=') << "\n\n";
 
       {
-        UsingRegion ur(graphRegion);
-        auto* root = new GraphNode;
-        graphRegion->bridge = root;
-        root->id = 0;
-        std::vector<GraphNode*> reachableNodes;
+        UsingRegion ur(root);
+
+        // For SemiSpace, pre-reserve capacity so that allocating the initial
+        // chain does not trigger a grow (which would invalidate pointers).
+        if constexpr (RT == RegionType::SemiSpace)
+        {
+          region_ensure_available((num_nodes - 1) * vsizeof<GraphNode>);
+        }
+
         GraphNode* prevNode = root;
         for (size_t i = 0; i < num_nodes - 1; i++)
         {
@@ -133,21 +140,21 @@ namespace pointer_churn_with_concurrency
           node->id = i + 1;
           prevNode->edges[0] = node;
           prevNode = node;
-        }      // Essentially creates a chain of nodes, not so much a graph
+        }
       }
   }
 
   template<RegionType RT>
-  size_t perform_mutations(size_t num_mutations, std::mt19937 rng, size_t cown_num, Region* graphRegion)
+  size_t perform_mutations(size_t num_mutations, std::mt19937 rng, size_t cown_num, GraphNode* root)
   {
-      UsingRegion ur(graphRegion);
-      auto root = graphRegion->bridge;
+      UsingRegion ur(root);
       std::uniform_int_distribution<size_t> rndOutEdgeInd(
         0, MAX_OUT_EDGES - 1);
 
       std::vector<GraphNode*> reachableNodes;
       while (num_mutations > 0)
       {
+
         reachableNodes.clear();
         // Find all reachable nodes first - this is our "live" set
         find_reachable_nodes(root, reachableNodes);
@@ -228,9 +235,27 @@ namespace pointer_churn_with_concurrency
   }
 
   template<RegionType RT>
-  void
-  test_pointer_churn(size_t num_nodes, size_t mutation_per_iter, size_t inputSeed, size_t num_regions, size_t iterations)
+  void run_test(
+      size_t num_nodes,
+      size_t mutation_per_iter,
+      size_t inputSeed,
+      size_t num_regions,
+      size_t iterations)
   {
+    const char* gc_name = "Unknown";
+    if constexpr (RT == RegionType::Trace)
+      gc_name = "Trace";
+    else if constexpr (RT == RegionType::Arena)
+      gc_name = "Arena";
+    else if constexpr (RT == RegionType::Rc)
+      gc_name = "Rc";
+    else if constexpr (RT == RegionType::SemiSpace)
+      gc_name = "SemiSpace";
+
+    std::cout << "\n" << std::string(60, '=') << "\n";
+    std::cout << "  POINTER CHURN WITH CONCURRENCY | GC: " << gc_name << "\n";
+    std::cout << std::string(60, '=') << "\n";
+
     std::vector<cown_ptr<RegionCown>> cowns;
     for (size_t cown_num = 0; cown_num < num_regions; cown_num++)
     {
@@ -242,35 +267,22 @@ namespace pointer_churn_with_concurrency
     {
       when(cown)
         << [=](auto c) {
-            create_chain<RT>(num_nodes, inputSeed, c->region_id, c->region);  // Add <RT>
+            create_chain<RT>(num_nodes, inputSeed, c->region_id, c->root);
         };
     }
-    
+
     const size_t seed = inputSeed + static_cast<size_t>(RT) * 10000;
     std::mt19937 rng(seed);
-    
+
     for (size_t i = 0; i < iterations; i++)
     {
       for (size_t cown_num = 0; cown_num < num_regions; cown_num++)
       {
         when(cowns[cown_num])
           << [=](auto c) {
-            perform_mutations<RT>(mutation_per_iter, rng, cown_num, c->region);  // Add <RT>
+            perform_mutations<RT>(mutation_per_iter, rng, cown_num, c->root);
         };
       }
     }
-  }
-
-  void run_test(
-      size_t num_nodes = 500,
-      size_t mutation_per_iter = 1000,
-      size_t inputSeed = 0,
-      size_t num_regions = 10,
-      size_t iterations = 50)
-  {
-    std::cout << "\n" << std::string(60, '=') << "\n";
-    std::cout << "  POINTER CHURN WITH CONCURRENCY\n";
-    std::cout << std::string(60, '=') << "\n";
-    test_pointer_churn<RegionType::Rc>(num_nodes, mutation_per_iter, inputSeed, num_regions, iterations);
   }
 }

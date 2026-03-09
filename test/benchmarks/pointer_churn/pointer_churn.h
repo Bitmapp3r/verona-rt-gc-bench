@@ -38,7 +38,6 @@ namespace pointer_churn
     GraphNode* edges[MAX_OUT_EDGES] = {nullptr};
     size_t id;
 
-    // Trace function for the trace and semispace GCs
     void trace(ObjectStack& st) const
     {
       for (size_t i = 0; i < MAX_OUT_EDGES; i++)
@@ -102,6 +101,21 @@ namespace pointer_churn
   void
   run_test(size_t num_nodes, size_t num_mutations, size_t inputSeed)
   {
+    const char* gc_name = "Unknown";
+    if constexpr (RT == RegionType::Trace)
+      gc_name = "Trace";
+    else if constexpr (RT == RegionType::Arena)
+      gc_name = "Arena";
+    else if constexpr (RT == RegionType::Rc)
+      gc_name = "Rc";
+    else if constexpr (RT == RegionType::SemiSpace)
+      gc_name = "SemiSpace";
+
+    std::cout << "\n" << std::string(60, '=') << "\n";
+    std::cout << "  POINTER CHURN WITH CONCURRENCY | GC: " << gc_name << "\n";
+    std::cout << std::string(60, '=') << "\n";
+
+    
     // Number of initial nodes in the graph (including root)
     const size_t NUM_NODES = num_nodes;
     // Number of mutations to perform on the graph
@@ -133,7 +147,9 @@ namespace pointer_churn
         {
           region_ensure_available(
             (NUM_NODES - 1) * vsizeof<GraphNode>);
-          root = get_root();
+          // Root is pinned (heap-allocated, never copied), but re-read as
+          // defensive practice after a potential grow.
+          check(root == get_root());
         }
 
         GraphNode* prevNode = root;
@@ -234,10 +250,10 @@ namespace pointer_churn
             {
               region_collect(); // Collect garbage for non-arena regions
               // SemiSpace GC copies objects to a new space, invalidating
-              // all local pointers. Re-read root from the entry point.
+              // all local interior pointers apart from root which is pinned.
               if constexpr (RT == RegionType::SemiSpace)
               {
-                root = get_root();
+                check(root == get_root());
               }
             }
             reachableNodes.clear();
@@ -256,7 +272,7 @@ namespace pointer_churn
           region_collect();
           if constexpr (RT == RegionType::SemiSpace)
           {
-            root = get_root();
+            check(root == get_root());
           }
         }
         reachableNodes.clear();

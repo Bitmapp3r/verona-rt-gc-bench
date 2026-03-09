@@ -18,6 +18,10 @@ RegionType string_to_region_type(const std::string& gc_type)
   {
     return RegionType::Rc;
   }
+  else if (gc_type == "semispace")
+  {
+    return RegionType::SemiSpace;
+  }
   else
   {
     // Handle invalid input - default to Rc or throw exception
@@ -34,6 +38,8 @@ RegionType parse_region_type(opt::Opt& opt)
     return RegionType::Arena;
   else if (opt.has("--rc"))
     return RegionType::Rc;
+  else if (opt.has("--semispace"))
+    return RegionType::SemiSpace;
   else
     return RegionType::Trace;
 }
@@ -51,6 +57,10 @@ decltype(auto) run_with_region(RegionType rt, F&& f, Args&&... args) {
 
         case RegionType::Rc:
             return f.template operator()<RegionType::Rc>(
+                std::forward<Args>(args)...);
+
+        case RegionType::SemiSpace:
+            return f.template operator()<RegionType::SemiSpace>(
                 std::forward<Args>(args)...);
 
         default:
