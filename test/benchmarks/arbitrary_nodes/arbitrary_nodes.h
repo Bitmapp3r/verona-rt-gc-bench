@@ -16,15 +16,14 @@
 
 #include "cpp/cown.h"
 #include "cpp/when.h"
-#include "func/ext_ref/ext_ref_basic.h"
 #include "region/region_api.h"
 #include "region/region_base.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <debug/harness.h>
 #include <iostream>
 #include <random>
-#include <unordered_set>
 #include <vector>
 #include <verona.h>
 
@@ -34,26 +33,23 @@ namespace arbitrary_nodes
 {
 
   template<typename T>
-  const T& random_element(const std::unordered_set<T>& s)
+  const T& random_element(const std::vector<T>& v)
   {
-    if (s.empty())
+    if (v.empty())
     {
-      throw std::out_of_range("random_element: empty set");
+      throw std::out_of_range("random_element: empty vector");
     }
 
     static thread_local std::mt19937 gen{std::random_device{}()};
-    std::uniform_int_distribution<size_t> dist(0, s.size() - 1);
-
-    auto it = s.begin();
-    std::advance(it, dist(gen));
-    return *it;
+    std::uniform_int_distribution<size_t> dist(0, v.size() - 1);
+    return v[dist(gen)];
   }
 
   inline int num_nodes = 0;
   class Node : public V<Node>
   {
   public:
-    std::unordered_set<Node*> neighbours;
+    std::vector<Node*> neighbours;
 
     Node()
     {
@@ -67,30 +63,33 @@ namespace arbitrary_nodes
           st.push(node);
       }
     }
-  };
 
-  struct GraphRegion : public V<GraphRegion>
-  // This is a single region
-  // This holds just the bridge node of that region
-  {
-    Node* bridge;
-
-    void trace(ObjectStack& st) const
+    // SemiSpace GC: forward all neighbour pointers in-place.
+    // std::vector has no self-referential pointers, so after memcpy
+    // the internal buffer pointer is a valid heap address that can
+    // be safely updated in-place (no reallocation needed).
+    void relocate(Object* (*fwd)(Object*))
     {
-      if (bridge != nullptr)
-        st.push(bridge);
+      for (auto& node : neighbours)
+      {
+        if (node != nullptr)
+          node = (Node*)fwd(node);
+      }
     }
   };
 
-  class GraphRegionCown
+  // Cown that owns a region. The Node* root is the iso root of the region
+  // (created via `new (rt) Node()`). Releasing the region frees all objects
+  // in it.
+  class RegionCown
   {
   public:
-    GraphRegionCown(GraphRegion* graphRegion) : graphRegion(graphRegion) {}
-    GraphRegion* graphRegion;
+    RegionCown(Node* root) : root(root) {}
+    Node* root;
 
-    ~GraphRegionCown()
+    ~RegionCown()
     {
-      region_release(graphRegion);
+      region_release(root);
     }
   };
 
@@ -139,7 +138,7 @@ namespace arbitrary_nodes
         if (u == v)
           continue;
 
-        u->neighbours.insert(v);
+        u->neighbours.push_back(v);
         if constexpr (rt == RegionType::Rc)
         {
           incref(v);
@@ -149,31 +148,29 @@ namespace arbitrary_nodes
   }
 
   template<RegionType rt>
-  std::vector<cown_ptr<GraphRegionCown>> createGraph(int size, int regions)
+  std::vector<cown_ptr<RegionCown>> createGraph(int size, int regions)
   {
     std::vector<size_t> region_sizes = random_regions(regions, size);
     std::cout << "Region sizes: ";
-    for (size_t size : region_sizes)
+    for (size_t s : region_sizes)
     {
-      std::cout << size << " ";
+      std::cout << s << " ";
     }
     std::cout << std::endl;
 
-    std::vector<cown_ptr<GraphRegionCown>> graphRegions;
+    std::vector<cown_ptr<RegionCown>> graphRegions;
     for (size_t region_size : region_sizes)
     {
-      GraphRegion* graphRegion = new (rt) GraphRegion();
-      auto ptr = make_cown<GraphRegionCown>(graphRegion);
+      // The first Node is the iso root (the "bridge" node).
+      // `new (rt) Node()` creates a region with this Node as the entry point.
+      Node* root = new (rt) Node();
+      auto ptr = make_cown<RegionCown>(root);
       {
-        UsingRegion ur(graphRegion);
-        Node* bridge = new Node();
-        graphRegion->bridge = bridge;
-        // For RC: the initial rc=1 from `new Node()` covers the
-        // graphRegion->bridge pointer — no explicit incref needed.
+        UsingRegion ur(root);
 
         // local vector of nodes in this region
         std::vector<Node*> all_nodes;
-        all_nodes.push_back(bridge);
+        all_nodes.push_back(root);
 
         for (size_t i = 0; i != region_size - 1; i++)
         {
@@ -183,12 +180,11 @@ namespace arbitrary_nodes
 
         fully_connect<rt>(all_nodes);
 
-        // For RC: non-bridge nodes were created with rc=1, but that initial
+        // For RC: non-root nodes were created with rc=1, but that initial
         // count doesn't correspond to any in-region pointer (only the local
         // all_nodes vector held them). fully_connect added incref for every
         // neighbour edge, so the initial rc=1 is surplus. Decref once to
-        // compensate. Bridge is fine — its initial rc=1 covers
-        // graphRegion->bridge.
+        // compensate. The root (iso entry point) is fine as-is.
         if constexpr (rt == RegionType::Rc)
         {
           for (size_t i = 1; i < all_nodes.size(); i++)
@@ -210,9 +206,11 @@ namespace arbitrary_nodes
     if (!src || !dst)
       return false;
 
-    if (src->neighbours.find(dst) != src->neighbours.end())
+    auto it = std::find(src->neighbours.begin(), src->neighbours.end(), dst);
+    if (it != src->neighbours.end())
     {
-      src->neighbours.erase(dst);
+      std::swap(*it, src->neighbours.back());
+      src->neighbours.pop_back();
       // For RC: do NOT decref here. If decref causes rc to hit 0, dst is
       // immediately freed by dealloc_object — but traverse() returns dst as
       // the next cur, causing use-after-free. Decrefs are deferred and
@@ -234,11 +232,11 @@ namespace arbitrary_nodes
   }
 
   template<RegionType rt>
-  void traverse_region(GraphRegion* graphRegion)
+  void traverse_region(Node* root)
   {
-    UsingRegion ur(graphRegion);
+    UsingRegion ur(root);
     std::cout << "Traversing region" << std::endl;
-    Node* cur = graphRegion->bridge;
+    Node* cur = root;
 
     // For RC: collect removed edge targets so we can decref them after
     // the walk is done, avoiding use-after-free from immediate deallocation.
@@ -275,13 +273,13 @@ namespace arbitrary_nodes
   void run_test(int size, int regions)
   {
     {
-      std::vector<cown_ptr<GraphRegionCown>> graphRegions =
+      std::vector<cown_ptr<RegionCown>> graphRegions =
         createGraph<rt>(size, regions);
 
-      for (cown_ptr<GraphRegionCown> graphRegionCown : graphRegions)
+      for (cown_ptr<RegionCown> regionCown : graphRegions)
       {
-        when(graphRegionCown)
-          << [&](auto c) { traverse_region<rt>(c->graphRegion); };
+        when(regionCown)
+          << [](auto c) { traverse_region<rt>(c->root); };
       }
     }
   }

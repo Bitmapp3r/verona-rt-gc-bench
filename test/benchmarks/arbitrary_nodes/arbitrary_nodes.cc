@@ -2,120 +2,35 @@
 // SPDX-License-Identifier: MIT
 #include "arbitrary_nodes.h"
 
-#include "debug/logging.h"
-
 #include <debug/harness.h>
 #include <test/opt.h>
 #include <util/gc_benchmark.h>
 
-using namespace verona::rt::api;
+#include "../benchmarker/benchmark_main_helper.h"
+#include "../../../src/benchmarker/export_macro.h"
 
-int main(int argc, char** argv)
+BENCHMARK_WINDOWS_CALLBACK_BRIDGE()
+
+MAKE_REGION_WRAPPER(test, arbitrary_nodes::run_test);
+
+extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
 
-  // Default values
-  int size = 1010;
-  int regions = 100;
-  bool enable_log = true;
+  enable_benchmark_logging(opt);
+  RegionType rt = parse_region_type(opt);
 
-  // Parse command line arguments
-  if (argc >= 3)
-  {
-    size = std::atoi(argv[1]);
-    regions = std::atoi(argv[2]);
-  }
-
-  if (argc >= 4)
-  {
-    std::string log_arg = argv[3];
-    if (log_arg == "log")
-    {
-      enable_log = true;
-    }
-  }
-
-  // Enable logging if requested
-  if (enable_log)
-  {
-    Logging::enable_logging();
-  }
-
-  size_t runs = 10;
-  size_t warmup_runs = 10;
-  const char* test_name = __FILE__;
+  int size = opt.is<int>("--size", 1010);
+  int regions = opt.is<int>("--regions", 100);
 
   SystematicTestHarness harness(argc, argv);
-
-  GCBenchmark trace_benchmark;
-
-  std::cout << "\nRunning with Trace region" << std::endl;
-  trace_benchmark.run_benchmark(
-    [&, size, regions]() {
-      harness.run(
-        [=]() { arbitrary_nodes::run_test<RegionType::Trace>(size, regions); });
-    },
-    runs,
-    warmup_runs,
-    test_name);
-
-  std::cout << "\nRunning with Arena region" << std::endl;
-  trace_benchmark.run_benchmark(
-    [&, size, regions]() {
-      harness.run(
-        [=]() { arbitrary_nodes::run_test<RegionType::Arena>(size, regions); });
-    },
-    runs,
-    warmup_runs,
-    test_name);
-
-  std::cout << "\nRunning with Rc region" << std::endl;
-  trace_benchmark.run_benchmark(
-    [&, size, regions]() {
-      harness.run(
-        [=]() { arbitrary_nodes::run_test<RegionType::Rc>(size, regions); });
-    },
-    runs,
-    warmup_runs,
-    test_name);
-
+  harness.run([&]() {
+    DISPATCH_REGION(rt, test, size, regions);
+  });
   return 0;
 }
 
-#if defined(_WIN32) || defined(_WIN64)
-#  define EXPORT __declspec(dllexport)
-#else
-#  define EXPORT
-#endif
-
-extern "C" EXPORT int run_benchmark(int argc, char** argv)
+int main(int argc, char** argv)
 {
-  opt::Opt opt(argc, argv);
-
-  int size = 1010;
-  int regions = 100;
-  bool enable_log = true;
-
-  try
-  {
-    if (argc > 1)
-      size = std::stoi(argv[1]);
-
-    if (argc > 2)
-      regions = std::stoi(argv[2]);
-
-    if (argc > 3)
-    {
-      std::string log_arg = argv[3];
-      enable_log = (log_arg == "log");
-    }
-  }
-  catch (const std::exception& e)
-  {
-    std::cerr << "Invalid command line argument: " << e.what() << std::endl;
-    return 1;
-  }
-
-  arbitrary_nodes::run_test<RegionType::Trace>(size, regions);
-  return 0;
+  return run_benchmark(argc, argv);
 }
