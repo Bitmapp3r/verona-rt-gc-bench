@@ -5,7 +5,6 @@
 #include <debug/harness.h>
 #include <test/opt.h>
 #include <util/gc_benchmark.h>
-#include <winnt.h>
 
 #include "../benchmarker/benchmark_main_helper.h"
 #include "../../../src/benchmarker/export_macro.h"

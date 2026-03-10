@@ -78,6 +78,11 @@ namespace verona::rt
     /// Uses Object::next pointers. Null-terminated.
     Object* large_objects = nullptr;
 
+    /// The iso (root) object, heap-allocated and pinned — it never
+    /// moves during GC or semispace growth.  This lets callers keep
+    /// a stable C++ pointer to the root across those operations.
+    Object* pinned_iso_ = nullptr;
+
     /// Delta from the most recent grow() call.  Consumed by
     /// create_object() in region_api.h to update the entry point
     /// in RegionContext (which grow() cannot access directly due
@@ -197,12 +202,17 @@ namespace verona::rt
       Object* o = Object::register_object(p, RegionSemiSpace::desc());
       auto reg = new (o) RegionSemiSpace();
 
-      // Allocate the iso object within the semi-space.
-      Object* iso = reg->alloc_internal(desc);
+      // Allocate the iso (root) object on the heap so it is pinned —
+      // it will never be moved by GC or semispace growth.
+      size_t sz = snmalloc::bits::align_up(desc->size, Object::ALIGNMENT);
+      void* iso_mem = heap::alloc(sz);
+      Object* iso = Object::register_object(iso_mem, desc);
       assert(Object::debug_is_aligned(iso));
 
       iso->init_iso();
       iso->set_region(reg);
+      reg->pinned_iso_ = iso;
+      reg->current_memory_used += desc->size;
 
       return iso;
     }
@@ -275,20 +285,22 @@ namespace verona::rt
      * Run Cheney-style semi-space garbage collection.
      *
      * Algorithm:
-     *   1. Copy the iso (root) object to to-space, install forwarding pointer.
+     *   1. Trace the pinned iso root's fields (root stays in place).
      *   2. Cheney scan loop — use scan/free pointers as a BFS queue:
      *      - For each scanned to-space object, trace its fields.
      *      - From-space objects are copied to to-space (forwarding pointer
      *        installed); large objects are marked live in place.
      *      - ISO, IMMUTABLE, SHARED fields are left as-is / remembered.
      *   3. Update all pointers in to-space objects to forwarded addresses.
+     *      Also update the pinned root's pointers.
      *   4. Update pointers in live large objects; finalize/free dead ones.
      *   5. Finalize and destruct dead objects in old from-space.
-     *   6. Swap spaces and update iso entry point.
+     *   6. Swap spaces. The iso root pointer is unchanged (pinned).
      **/
     static Object* gc(Object* o, RegionSemiSpace* reg)
     {
       assert(o->debug_is_iso());
+      assert(o == reg->pinned_iso_);
 
       Logging::cout() << "SemiSpace GC called for: " << o << Logging::endl;
 
@@ -297,9 +309,56 @@ namespace verona::rt
       std::byte* free_ptr = to_start;
       std::byte* to_end = to_start + reg->semispace_size;
 
-      // Phase 1: Copy the iso root object to to-space.
-      Object* new_iso = copy_object(o, free_ptr, to_end);
-      assert(new_iso != nullptr);
+      // Phase 1: The iso root is pinned on the heap — don't copy it.
+      // Trace its fields and copy/mark reachable children.
+      {
+        ObjectStack fields;
+        o->trace(fields);
+
+        while (!fields.empty())
+        {
+          Object* field = fields.pop();
+          switch (field->get_class())
+          {
+            case Object::ISO:
+              break;
+
+            case Object::UNMARKED:
+            {
+              if (is_in_space(field, reg->from_space, reg->semispace_size))
+              {
+                Object* new_obj = copy_object(field, free_ptr, to_end);
+                assert(new_obj != nullptr);
+              }
+              else if (is_large_object(field, reg))
+              {
+                field->mark();
+              }
+              break;
+            }
+
+            case Object::MARKED:
+              break;
+
+            case Object::SCC_PTR:
+            {
+              Object* imm = field->immutable();
+              reg->RememberedSet::mark(imm);
+              break;
+            }
+
+            case Object::RC:
+            case Object::SHARED:
+            {
+              reg->RememberedSet::mark(field);
+              break;
+            }
+
+            default:
+              break;
+          }
+        }
+      }
 
       // Phase 2: Cheney scan loop.
       // scan walks through to-space objects; free_ptr is where next copy goes.
@@ -378,6 +437,10 @@ namespace verona::rt
       // Phase 3: Update all pointers in to-space objects to new addresses.
       update_all_pointers(to_start, free_ptr, reg);
 
+      // Also update the pinned root's pointers (it references from-space
+      // objects that have been forwarded to to-space).
+      update_object_pointers(o, reg);
+
       // Phase 4: Update pointers in large objects and collect dead large
       // objects.
       Object* live_large = nullptr;
@@ -412,7 +475,8 @@ namespace verona::rt
       reg->large_objects = live_large;
 
       // Phase 5: Finalize dead objects in old from-space.
-      // All non-forwarded objects in from-space are dead.
+      // All non-forwarded objects in from-space are dead (the pinned root
+      // was never in from-space, so it is unaffected).
       // We need to run finalisers before destructors for non-trivial objects.
       {
         // First pass: finalisers for non-trivial dead objects in from-space.
@@ -464,8 +528,8 @@ namespace verona::rt
       reg->alloc_ptr = free_ptr;
       reg->alloc_end = reg->from_space + reg->semispace_size;
 
-      // Update memory used: the live data is [from_space, alloc_ptr).
-      reg->current_memory_used = 0;
+      // Update memory used: pinned root + from-space live data + large objects.
+      reg->current_memory_used = o->size();
       {
         std::byte* p = reg->from_space;
         while (p < reg->alloc_ptr)
@@ -486,14 +550,11 @@ namespace verona::rt
       // Sweep the remembered set.
       reg->RememberedSet::sweep();
 
-      // Set up new iso.
-      new_iso->init_iso();
-      new_iso->set_region(reg);
+      // The root is pinned — no address change, no need to re-init iso.
+      Logging::cout() << "SemiSpace GC complete. Iso (pinned): " << o
+                      << Logging::endl;
 
-      Logging::cout() << "SemiSpace GC complete. Old iso: " << o
-                      << " New iso: " << new_iso << Logging::endl;
-
-      return new_iso;
+      return o;
     }
 
   private:
@@ -535,9 +596,10 @@ namespace verona::rt
      * until the requirement is met.
      *
      * After the raw byte copy, all pointer fields inside from-space
-     * objects (and large objects that reference from-space) are adjusted
-     * by the address delta so they remain valid. The entry point stored
-     * in RegionContext is also updated.
+     * objects (and large objects / the pinned root that reference
+     * from-space) are adjusted by the address delta so they remain
+     * valid. The pinned root itself is heap-allocated and does not
+     * move.
      *
      * Steps:
      *   1. Compute a new size (at least double the current size).
@@ -545,7 +607,6 @@ namespace verona::rt
      *   3. Allocate a new to-space, free old.
      *   4. Update alloc_ptr / alloc_end.
      *   5. Adjust all pointer fields by the address delta.
-     *   6. Update the entry point in RegionContext.
      **/
     void grow(size_t needed)
     {
@@ -597,14 +658,6 @@ namespace verona::rt
           Object* obj = Object::object_start(p);
           size_t obj_size =
             snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
-
-          // Fix the iso object's header: it contains (old_this | ISO).
-          // Re-initialise it so it stores (new_this | ISO).
-          if (obj->get_class() == Object::RegionMD::ISO)
-          {
-            obj->init_iso();
-            obj->set_region(this);
-          }
 
           // Fix pointer fields via relocate if available.
           auto* desc = obj->get_descriptor();
@@ -661,9 +714,34 @@ namespace verona::rt
           lo = lo->get_next();
         }
 
-        // Store the delta so that the caller (create_object in
-        // region_api.h) can update RegionContext::get_entry_point().
-        last_grow_delta_ = delta;
+        // Fix pointer fields in the pinned root that reference from-space.
+        if (pinned_iso_ != nullptr)
+        {
+          auto* desc = pinned_iso_->get_descriptor();
+          if (desc->relocate != nullptr)
+          {
+            desc->relocate(pinned_iso_, adjust_for_grow);
+          }
+          else
+          {
+            size_t body_size =
+              pinned_iso_->size() - sizeof(Object::Header);
+            auto* body = (Object**)pinned_iso_;
+            size_t num_words = body_size / sizeof(Object*);
+
+            for (size_t i = 0; i < num_words; i++)
+            {
+              auto* word = (std::byte*)body[i];
+              if (word != nullptr && word >= old_from &&
+                  word < old_from + used)
+              {
+                body[i] = (Object*)(word + delta);
+              }
+            }
+          }
+        }
+
+        // The pinned root never moves, so no entry-point delta is needed.
       }
     }
 
@@ -859,6 +937,12 @@ namespace verona::rt
             lo->finalise(o, collect);
           lo = lo->get_next();
         }
+
+        // Finaliser for the pinned root.
+        if (pinned_iso_ != nullptr && !pinned_iso_->is_trivial())
+        {
+          pinned_iso_->finalise(o, collect);
+        }
       }
 
       // Run destructors on all non-trivial objects.
@@ -883,6 +967,12 @@ namespace verona::rt
             lo->destructor();
           lo = lo->get_next();
         }
+
+        // Destructor for the pinned root.
+        if (pinned_iso_ != nullptr && !pinned_iso_->is_trivial())
+        {
+          pinned_iso_->destructor();
+        }
       }
 
       // Deallocate large objects.
@@ -894,6 +984,13 @@ namespace verona::rt
           lo->dealloc();
           lo = next;
         }
+      }
+
+      // Deallocate the pinned root.
+      if (pinned_iso_ != nullptr)
+      {
+        pinned_iso_->dealloc();
+        pinned_iso_ = nullptr;
       }
 
       // Deallocate both semi-spaces.
@@ -910,7 +1007,8 @@ namespace verona::rt
   public:
     /**
      * Iterator over all objects in the semi-space region.
-     * Iterates through from-space objects and then large objects.
+     * Yields the pinned root first, then from-space objects, then large
+     * objects.
      **/
     template<IteratorType type = AllObjects>
     class iterator
@@ -920,36 +1018,63 @@ namespace verona::rt
       static_assert(
         type == Trivial || type == NonTrivial || type == AllObjects);
 
+      /// Iteration phase: pinned root -> from-space -> large objects.
+      enum class Phase { PinnedRoot, FromSpace, LargeObjects, Done };
+
       iterator(RegionSemiSpace* r)
-      : reg(r), arena_ptr(r->from_space), ptr(nullptr), in_large(false)
+      : reg(r), arena_ptr(r->from_space), ptr(nullptr),
+        phase(Phase::PinnedRoot)
       {
-        advance_to_valid();
+        // Try the pinned root first.
+        if (reg->pinned_iso_ != nullptr && matches_filter(reg->pinned_iso_))
+        {
+          ptr = reg->pinned_iso_;
+        }
+        else
+        {
+          // Skip past pinned root phase.
+          phase = Phase::FromSpace;
+          advance_from_space();
+        }
       }
 
       iterator(RegionSemiSpace* r, std::nullptr_t)
-      : reg(r), arena_ptr(nullptr), ptr(nullptr), in_large(false)
+      : reg(r), arena_ptr(nullptr), ptr(nullptr), phase(Phase::Done)
       {}
 
     public:
       iterator operator++()
       {
-        if (in_large)
+        switch (phase)
         {
-          // Move to next large object.
-          if (ptr != nullptr)
+          case Phase::PinnedRoot:
+            // Finished pinned root, move to from-space.
+            phase = Phase::FromSpace;
+            ptr = nullptr;
+            advance_from_space();
+            break;
+
+          case Phase::FromSpace:
           {
-            ptr = ptr->get_next();
-            skip_to_valid_large();
+            // Move to next object in from-space.
+            size_t obj_size =
+              snmalloc::bits::align_up(ptr->size(), Object::ALIGNMENT);
+            arena_ptr = ptr->real_start() + obj_size;
+            ptr = nullptr;
+            advance_from_space();
+            break;
           }
-        }
-        else
-        {
-          // Move to next object in from-space.
-          size_t obj_size =
-            snmalloc::bits::align_up(ptr->size(), Object::ALIGNMENT);
-          arena_ptr = ptr->real_start() + obj_size;
-          ptr = nullptr;
-          advance_to_valid();
+
+          case Phase::LargeObjects:
+            if (ptr != nullptr)
+            {
+              ptr = ptr->get_next();
+              skip_to_valid_large();
+            }
+            break;
+
+          case Phase::Done:
+            break;
         }
         return *this;
       }
@@ -968,24 +1093,28 @@ namespace verona::rt
       RegionSemiSpace* reg;
       std::byte* arena_ptr;
       Object* ptr;
-      bool in_large;
+      Phase phase;
 
-      void advance_to_valid()
+      static bool matches_filter(Object* obj)
       {
-        // Try from-space first.
+        if constexpr (type == Trivial)
+          return obj->is_trivial();
+        else if constexpr (type == NonTrivial)
+          return !obj->is_trivial();
+        else
+          return true;
+      }
+
+      void advance_from_space()
+      {
+        // Try from-space.
         while (arena_ptr < reg->alloc_ptr)
         {
           Object* obj = Object::object_start(arena_ptr);
           size_t obj_size =
             snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
 
-          bool matches = true;
-          if constexpr (type == Trivial)
-            matches = obj->is_trivial();
-          else if constexpr (type == NonTrivial)
-            matches = !obj->is_trivial();
-
-          if (matches)
+          if (matches_filter(obj))
           {
             ptr = obj;
             return;
@@ -994,7 +1123,7 @@ namespace verona::rt
         }
 
         // Then try large objects.
-        in_large = true;
+        phase = Phase::LargeObjects;
         ptr = reg->large_objects;
         skip_to_valid_large();
       }
@@ -1003,16 +1132,12 @@ namespace verona::rt
       {
         while (ptr != nullptr)
         {
-          bool matches = true;
-          if constexpr (type == Trivial)
-            matches = ptr->is_trivial();
-          else if constexpr (type == NonTrivial)
-            matches = !ptr->is_trivial();
-
-          if (matches)
+          if (matches_filter(ptr))
             return;
           ptr = ptr->get_next();
         }
+        // Exhausted.
+        phase = Phase::Done;
       }
     };
 

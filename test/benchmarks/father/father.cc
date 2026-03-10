@@ -19,11 +19,11 @@ extern "C" BENCHMARK_EXPORT void set_gc_callback(void (*callback)(uint64_t, vero
   if (callback)
   {
     func = callback;
-    internal::RegionContext::set_gc_callback(&func);
+    verona::rt::set_gc_callback(&func);
   }
   else
   {
-    internal::RegionContext::set_gc_callback(nullptr);
+    verona::rt::set_gc_callback(nullptr);
   }
 }
 #endif
