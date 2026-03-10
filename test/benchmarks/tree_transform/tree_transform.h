@@ -68,6 +68,15 @@ namespace tree_transform
       if (right != nullptr)
         st.push(right);
     }
+
+    // SemiSpace GC: forward child pointers after objects are copied.
+    void relocate(Object* (*fwd)(Object*))
+    {
+      if (left != nullptr)
+        left = (TreeNode*)fwd(left);
+      if (right != nullptr)
+        right = (TreeNode*)fwd(right);
+    }
   };
 
   /**
@@ -192,6 +201,12 @@ namespace tree_transform
         std::cout << "Heap size before collect: " << heap_before << "\n";
 
         region_collect();
+
+        // SemiSpace GC: region_collect() may relocate TreeNode objects.
+        // Re-read current from root->left (root is the iso entry point
+        // and is pinned, so root->left was updated by relocate()).
+        current = root->left;
+
         // Add timing to decref
 
         int heap_after = debug_size();
@@ -226,6 +241,11 @@ namespace tree_transform
     {
       std::cout << "\nTree Transform Test: Arena\n";
       tree_transform::run_test<RegionType::Arena>(depth, transforms);
+    }
+    else if (gc_type == "semispace")
+    {
+      std::cout << "\nTree Transform Test: SemiSpace GC\n";
+      tree_transform::run_test<RegionType::SemiSpace>(depth, transforms);
     }
     else
     {

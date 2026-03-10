@@ -33,6 +33,9 @@ namespace gol
     int x, y;
     Cell(int x_, int y_) : x(x_), y(y_) {}
     void trace(ObjectStack& st) const {}
+
+    // SemiSpace GC: Cell has no pointer fields, nothing to forward.
+    void relocate(Object* (*)(Object*)) {}
   };
 
   struct SimRoot : public V<SimRoot>
@@ -45,6 +48,16 @@ namespace gol
       {
         if (c)
           st.push(c);
+      }
+    }
+
+    // SemiSpace GC: forward every Cell* in the live_cells vector.
+    void relocate(Object* (*fwd)(Object*))
+    {
+      for (auto*& c : live_cells)
+      {
+        if (c)
+          c = (Cell*)fwd(c);
       }
     }
   };
@@ -138,6 +151,19 @@ namespace gol
           }
         }
 
+        // For RC: decref old cells before overwriting live_cells, since
+        // the old cells lose their only in-region reference. Each cell was
+        // created with rc=1 covering the live_cells reference; decref → 0
+        // triggers immediate deallocation.
+        if constexpr (rt == RegionType::Rc)
+        {
+          for (auto* c : root->live_cells)
+          {
+            if (c)
+              decref(c);
+          }
+        }
+
         current_grid = next_grid;
         root->live_cells = current_grid;
 
@@ -145,6 +171,11 @@ namespace gol
         // std::cout << "Heap size before region collect: " << heap_size << "\n";
 
         region_collect();
+
+        // SemiSpace GC: region_collect() may relocate Cell objects.
+        // Re-read current_grid from root->live_cells (which was updated
+        // by SimRoot::relocate()) so we don't use stale pointers.
+        current_grid = root->live_cells;
 
         int actual_alive_count = 0;
         for (auto* c : current_grid)

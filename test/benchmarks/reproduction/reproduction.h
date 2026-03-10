@@ -49,6 +49,16 @@ namespace reproduction
         if (n)
           st.push(n);
     }
+
+    // SemiSpace GC: forward all child pointers in the to vector.
+    void relocate(Object* (*fwd)(Object*))
+    {
+      for (auto*& n : to)
+      {
+        if (n)
+          n = (Node*)fwd(n);
+      }
+    }
   };
 
   // ============================================================
@@ -72,6 +82,15 @@ namespace reproduction
         st.push(root);
       if (next)
         st.push(next);
+    }
+
+    // SemiSpace GC: forward root and next pointers.
+    void relocate(Object* (*fwd)(Object*))
+    {
+      if (root)
+        root = (Node*)fwd(root);
+      if (next)
+        next = (Organism*)fwd(next);
     }
 
     static Organism* reproduce(Organism* a, Organism* b)
