@@ -38,7 +38,7 @@ namespace father
     #if defined(_WIN32) || defined(_WIN64)
     #  define PLATFORM_WINDOWS
     #endif
-    
+
     #ifdef PLATFORM_WINDOWS
     #  include <windows.h>
     using LibHandle = HMODULE;
@@ -69,27 +69,27 @@ namespace father
       return dlerror();
     }
     #endif
-    
+
     struct Workload : V<Workload>
     {
         using BenchmarkFunc = int (*)(int, char**);
-        
+
         LibHandle lib_handle = nullptr;
         BenchmarkFunc benchmark_fn_ptr = nullptr;
         std::vector<std::string> args;
         bool initialized = false;
         std::string error_msg;
-        
+
         // Default constructor for region allocation
         Workload() : initialized(false) {}
-        
+
         // Constructor: takes library path and argument strings
         Workload(const std::string& lib_path, const std::vector<std::string>& benchmark_args)
             : args(benchmark_args), initialized(false)
         {
             initialize(lib_path);
         }
-        
+
         void initialize(const std::string& lib_path)
         {
             lib_handle = LIB_OPEN(lib_path.c_str());
@@ -98,13 +98,13 @@ namespace father
                 error_msg = std::string("Library open error: ") + lib_last_error();
                 return;
             }
-            
+
     #ifndef PLATFORM_WINDOWS
             dlerror();  // Clear any previous errors
     #endif
-            
+
             benchmark_fn_ptr = reinterpret_cast<BenchmarkFunc>(LIB_SYM(lib_handle, "run_benchmark"));
-            
+
     #ifdef PLATFORM_WINDOWS
             if (!benchmark_fn_ptr)
             {
@@ -123,10 +123,10 @@ namespace father
                 return;
             }
     #endif
-            
+
             initialized = true;
         }
-        
+
         // Destructor: clean up library handle
         ~Workload()
         {
@@ -136,11 +136,11 @@ namespace father
                 lib_handle = nullptr;
             }
         }
-        
+
         // Prevent copying (handle can't be safely copied)
         Workload(const Workload&) = delete;
         Workload& operator=(const Workload&) = delete;
-        
+
         // Allow moving
         Workload(Workload&& other) noexcept
             : lib_handle(other.lib_handle),
@@ -153,59 +153,32 @@ namespace father
             other.benchmark_fn_ptr = nullptr;
             other.initialized = false;
         }
-        
+
         Workload& operator=(Workload&& other) noexcept
         {
             if (this != &other)
             {
                 if (lib_handle)
                     LIB_CLOSE(lib_handle);
-                
+
                 lib_handle = other.lib_handle;
                 benchmark_fn_ptr = other.benchmark_fn_ptr;
                 args = std::move(other.args);
                 initialized = other.initialized;
                 error_msg = std::move(other.error_msg);
-                
+
                 other.lib_handle = nullptr;
                 other.benchmark_fn_ptr = nullptr;
                 other.initialized = false;
             }
             return *this;
+
         }
-        
-        // Get a callable lambda
-        std::function<void()> get_benchmark()
-        {
-            if (!initialized || !benchmark_fn_ptr)
-            {
-                return []() {
-                    std::cerr << "Benchmark not initialized\n";
-                };
-            }
-            
-            return [this]() {
-                // Create argv array from stored args
-                std::vector<char*> argv;
-                for (auto& arg : args)
-                {
-                    argv.push_back(const_cast<char*>(arg.c_str()));
-                }
-                argv.push_back(nullptr);  // null-terminate
-                
-                // Call the benchmark function
-                int result = benchmark_fn_ptr(argv.size() - 1, argv.data());
-                if (result != 0)
-                {
-                    std::cerr << "Benchmark returned: " << result << "\n";
-                }
-            };
-        }
-        
+
         // Check if initialization was successful
         bool is_valid() const { return initialized; }
         const std::string& get_error() const { return error_msg; }
-        
+
         // Trace function for garbage collection
         void trace(ObjectStack& st) const
         {
@@ -214,7 +187,7 @@ namespace father
             // Nothing to trace for GC
         }
     };
-    
+
     // Usage example:
     /*
     Workload w("./libbenchmark.so", {"-O3", "--threads=4", "--iterations=1000"});
@@ -223,57 +196,63 @@ namespace father
         std::cerr << "Error: " << w.get_error() << "\n";
         return 1;
     }
-    
+
     auto benchmark = w.get_benchmark();
     benchmark();  // Call it
     */
-    
+
     struct WorkloadRegion : V<WorkloadRegion>
     {
         Workload* workload;
-        
+
         WorkloadRegion() : workload(nullptr) {}
-        
+
         void trace(ObjectStack& st) const
         {
             if (workload != nullptr)
                 st.push(workload);
         }
     };
-    
+
     class WorkloadCown
     {
     public:
-        WorkloadCown(WorkloadRegion* region, size_t workload_id) 
+        WorkloadCown(WorkloadRegion* region, size_t workload_id)
         : region(region), workload_id(workload_id) {}
-        
+
         WorkloadRegion* region;
         size_t workload_id;
-        
+
         ~WorkloadCown()
         {
             region_release(region);
         }
     };
-    
+
+    class Dummy {
+        char dummy[100];
+    };
+
     template<RegionType rt>
     cown_ptr<WorkloadCown> create_cown(size_t cown_num, const std::string& lib_path, const std::vector<std::string>& args)
     {
         WorkloadRegion* region = new (rt) WorkloadRegion();
         auto cown = make_cown<WorkloadCown>(region, cown_num);
-        
+
         {
             UsingRegion ur(region);
+
+            auto dummy = new Dummy();
             Workload* workload = new Workload();
             region->workload = workload;
-            
+
             // Initialize the workload with library and args
             workload->initialize(lib_path);
             workload->args = args;
-            
+
             if (!workload->is_valid())
             {
-                std::cerr << "Failed to initialize workload " << cown_num 
+                std::cerr << "Failed to initialize workload " << cown_num
                           << ": " << workload->get_error() << "\n";
             }
             else
@@ -281,20 +260,30 @@ namespace father
                 std::cout << "Initialized workload in region " << cown_num << "\n";
             }
         }
-        
+
         return cown;
-    }    
-    
+    }
+
     template<RegionType rt>
-    void run_test(const std::vector<std::pair<std::string, std::vector<std::string>>>& workloads, 
-                  size_t num_regions = 3, 
-                  size_t iterations = 100)
+    void run_test(const std::vector<std::pair<std::string, std::vector<std::string>>>& workloads,
+                  size_t num_regions = 1,
+                  size_t iterations = 1)
     {
+
       std::cout << "\nStarting father test with " << workloads.size() << " mixed workloads...\n";
+      std::cout << "Region type: ";
+      switch(rt) {
+        case RegionType::Trace: std::cout << "Trace"; break;
+        case RegionType::Arena: std::cout << "Arena"; break;
+        case RegionType::Rc:    std::cout << "Rc"; break;
+        case RegionType::SemiSpace: std::cout << "SemiSpace"; break;
+        default: std::cout << "Unknown"; break;
+      }
+
       std::cout << "Num regions: " << num_regions << ", Iterations: " << iterations << "\n";
-      
+
       std::vector<cown_ptr<WorkloadCown>> cowns;
-      
+
       // Create workload cowns for each provided workload
       // Run each workload multiple times based on num_regions
       for (size_t region_id = 0; region_id < num_regions; region_id++)
@@ -309,15 +298,15 @@ namespace father
               }
           }
       }
-      
+
       if (cowns.empty())
       {
           std::cout << "No workloads configured. Provide library paths to run benchmarks.\n";
           return;
       }
-      
+
       std::cout << "Created " << cowns.size() << " total region instances\n";
-      
+
       // Execute workloads multiple times (iterations)
       for (size_t iter = 0; iter < iterations; iter++)
       {
@@ -339,13 +328,14 @@ namespace father
                       {
                           argv.push_back(const_cast<char*>(arg.c_str()));
                       }
-                      
+
                       // Call the benchmark function
+
                       int result = c->region->workload->benchmark_fn_ptr(
                           static_cast<int>(argv.size()),
                           argv.data()
                       );
-                      
+
                       if (iter == 0 || iter == iterations - 1)
                       {
                           std::cout << "Workload " << c->workload_id << " iteration " << iter << " completed with result: " << result << "\n";
@@ -367,54 +357,8 @@ namespace father
         };
         }
       }
-      
+
       std::cout << "Father test scheduling complete (ran " << iterations << " iterations)\n";
     }
-    
-    // Simple test that does actual region-based work for GC statistics
-    template<RegionType rt>
-    void run_simple_test(size_t num_regions = 10, size_t work_per_region = 100)
-    {
-      std::cout << "\nRunning father simple test with " << num_regions << " regions, " 
-                << work_per_region << " allocations per region\n";
-      
-      std::vector<cown_ptr<WorkloadCown>> cowns;
-      
-      // Create regions
-      for (size_t i = 0; i < num_regions; i++)
-      {
-          WorkloadRegion* region = new (rt) WorkloadRegion();
-          auto cown = make_cown<WorkloadCown>(region, i);
-          cowns.push_back(cown);
-      }
-      
-      // Do work in each region
-      for (auto& cown : cowns)
-      {
-        when(cown) << [work_per_region](auto c) {
-            UsingRegion ur(c->region);
-            
-            // Allocate and link workload objects to generate GC activity
-            for (size_t i = 0; i < work_per_region; i++)
-            {
-                Workload* w = new Workload();
-                w->args.push_back("dummy");
-                w->args.push_back("data");
-                w->args.push_back("more");
-                c->region->workload = w;  // Keep updating to eventually garbage collect old ones
-                
-                // Trigger GC every 10 allocations
-                if (i % 10 == 0)
-                {
-                    region_collect();
-                }
-            }
-            
-            // Final collection
-            region_collect();
-        };
-      }
-      
-      std::cout << "Father simple test complete\n";
-    }
+
 } // namespace father
