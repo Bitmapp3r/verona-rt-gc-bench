@@ -71,7 +71,7 @@ void test() {
             c->reg->next->root->next = new Node(3);
         }
     };
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 50; i++) {
         when(cown) << [=](auto c) {
             Logging::cout() << "second region start " << i << "\n";
             {

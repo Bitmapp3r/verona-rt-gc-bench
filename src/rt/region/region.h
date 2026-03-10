@@ -257,4 +257,71 @@ namespace verona::rt
   {
     return o->get_ref_count();
   }
+
+  RegionBase* Object::acq_region() {
+      assert(get_class() == RegionMD::ISO || get_class() == RegionMD::OPEN_ISO);
+      while(true) { 
+        size_t state = get_header().rc.load();
+        if ((RegionMD)(state & MASK) == OPEN_ISO) {
+          snmalloc::Aal::pause();
+          continue;
+        } else {
+          // its ISO so try and do the exchange!
+          // WE CAN CALL GC SPECIFIC CODE HERE TO GET THE "NEW STATE"
+          RegionBase* reg = (RegionBase*)(state & ~MASK);
+          size_t new_state_rc = state;
+          auto expected = RegionBase::Closed;
+          bool success;
+          switch (Region::get_type(reg)) {
+            case RegionType::Trace:
+            case RegionType::Arena:
+              success = reg->state.compare_exchange_strong(expected, RegionBase::Open);
+              break;
+            case RegionType::Rc:
+              new_state_rc = ((RegionRc*)reg)->open_state(this);
+              success = get_header().rc.compare_exchange_strong(state, new_state_rc);
+              break;
+          }
+          if (success) {
+            if ((RegionMD)(state & MASK) == OPEN_ISO) { // old state  
+              // try again
+              std::cout << "This shouldn't be possible\n";
+              continue;
+            }
+            return reg;
+          } else {
+          snmalloc::Aal::pause();
+          }
+        }
+      }  
+    }
+
+    // THERES A RACE CONDITION HERE
+    void Object::rel_region(RegionBase* reg) {
+      // not actual region release. but releasing us from opening the region ie close
+      
+      while(true) {
+        size_t state = get_header().rc.load();
+        //RegionBase* reg = (RegionBase*)(state & ~MASK);
+        size_t new_state = state;
+        auto expected = RegionBase::Open;
+        bool success;
+        switch(Region::get_type(reg)) {
+          case RegionType::Trace:
+          case RegionType::Arena:
+            success = reg->state.compare_exchange_strong(expected, RegionBase::Closed);
+            assert(success && "Fatal: Region was not Open when trying to close");
+            break;
+          case RegionType::Rc:
+            ((RegionRc*)reg)->entry_point_count.store(state >> SHIFT);
+            new_state = ((RegionRc*)reg)->close_state(this);
+            break;
+            success = get_header().rc.compare_exchange_strong(state, new_state);
+        } 
+        if (success) {
+          return;
+        }
+      }
+    }
+
 } // namespace verona::rt

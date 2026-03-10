@@ -35,9 +35,9 @@ namespace verona::rt
 
   private:
     static constexpr uintptr_t FINALISER_MASK = 1 << 1;
-
-    size_t entry_point_count = 1;
-
+  public: // TODO CHANGE THIS TO PRIVATE;
+    std::atomic<size_t> entry_point_count = 1;
+  private:
     // Objects which may be in a cycle, so will be checked by gc_cycles.
     // FIXME: Use two stacks to simulate per-block queue based behaviour.
     StackThin<Object> lins_stack;
@@ -150,12 +150,44 @@ namespace verona::rt
       o->init_iso_ref_count(entry_point_count);
     }
 
+    size_t open_state(Object* o) 
+    {
+      return o->get_init_iso_ref_count(entry_point_count);
+    } 
+
     void close(Object* o)
     {
       assert(o->get_class() == RegionMD::OPEN_ISO);
-      entry_point_count = o->get_ref_count();
+      entry_point_count.store(o->get_ref_count());
       o->set_region(this);
     }
+
+    size_t close_state(Object* o) {
+      //get_header().rc.store(size_t(region) | (uint8_t)RegionMD::ISO);
+      auto classs = get_class();
+      switch (classs) {
+        case RegionMD::ISO:
+          break; 
+        case RegionMD::UNMARKED:
+          std::cout << "HUHH???\n";
+          break;
+        case RegionMD::MARKED:
+          std::cout << "MARKED\n";
+          break;
+        case RegionMD::OPEN_ISO:
+          std::cout << "OEPN ISO\n";
+          break;
+        case RegionMD::RC:
+          std::cout << "RC\n";
+          break;
+        case RegionMD::NONATOMIC_RC:
+          std::cout << "NON ATOMIC RC\n";
+        default:
+          std::cout << "nvm\n";
+      }
+      assert(get_class() == RegionMD::OPEN_ISO);
+      return (size_t)this | (uint8_t)RegionMD::ISO;
+    } 
 
     /// Increments the reference count of `o`. The object `in` is the entry
     /// point to the region that contains `o`.
@@ -411,7 +443,7 @@ namespace verona::rt
           }
 
           RegionRc* reg = get(f);
-          reg->entry_point_count -= 1;
+          reg->entry_point_count.fetch_sub(1);
         }
         else
         {

@@ -7,7 +7,6 @@
 #include "../ds/bag.h"
 #include "../ds/heap.h"
 #include "../ds/stack.h"
-
 namespace verona::rt
 {
   class Cown;
@@ -139,12 +138,12 @@ namespace verona::rt
       PENDING = 0x5,
       NONATOMIC_RC = 0x6,
       SHARED = 0x7,
-      OPEN_ISO = 0x8 // TODO This is a problem for 32bit platforms. We need to
+      OPEN_ISO = 0x8, // TODO This is a problem for 32bit platforms. We need to
                      // fix as part of major refactor of header layout.
     };
 
     inline friend std::ostream& operator<<(std::ostream& os, RegionMD md)
-    {
+    { // shouldn't this include OPEN_ISO?
       switch (md)
       {
         case RegionMD::UNMARKED:
@@ -414,7 +413,8 @@ namespace verona::rt
   private:
     inline RegionMD get_class()
     {
-      return (RegionMD)(get_header().bits & MASK);
+      return (RegionMD)(get_header().rc.load() & MASK);
+      // return (RegionMD)(get_header().bits & MASK);
     }
 
     inline size_t size()
@@ -459,7 +459,9 @@ namespace verona::rt
         (get_class() == RegionMD::OPEN_ISO) ||
         (get_class() == RegionMD::MARKED) ||
         (get_class() == RegionMD::UNMARKED));
-      return (size_t)(get_header().bits >> SHIFT);
+      //return (size_t)(get_header().bits >> SHIFT);
+      return (size_t)(get_header().rc.load() >> SHIFT);
+      // need to use atomics here because of concurrent GC.
     }
 
     inline void incref_rc_region()
@@ -482,13 +484,16 @@ namespace verona::rt
 
     inline void init_ref_count()
     {
-      get_header().bits = RegionMD::UNMARKED + ONE_RC;
+      //get_header().bits = RegionMD::UNMARKED + ONE_RC;
+      get_header().rc.store(RegionMD::UNMARKED + ONE_RC);
     }
 
     inline void init_iso_ref_count(size_t count)
     {
       assert(get_class() == RegionMD::ISO);
-      get_header().bits = (count << SHIFT) | (uint8_t)RegionMD::OPEN_ISO;
+      //get_header().bits = (count << SHIFT) | (uint8_t)RegionMD::OPEN_ISO;
+      size_t new_state = (count << SHIFT) | (uint8_t)RegionMD::OPEN_ISO;
+      get_header().rc.store(new_state);
     }
 
     inline void set_next(Object* o)
@@ -500,15 +505,51 @@ namespace verona::rt
   public:
     inline RegionBase* get_region()
     {
-      assert(get_class() == RegionMD::ISO);
-      return (RegionBase*)(get_header().bits & ~MASK);
+      auto classs = get_class();
+      switch (classs) {
+        case RegionMD::ISO:
+          break; 
+        case RegionMD::UNMARKED:
+          std::cout << "HUHH???\n";
+          break;
+        case RegionMD::MARKED:
+          std::cout << "MARKED\n";
+          break;
+        case RegionMD::OPEN_ISO:
+          std::cout << "OEPN ISO\n";
+          break;
+        case RegionMD::RC:
+          std::cout << "RC\n";
+          break;
+        case RegionMD::NONATOMIC_RC:
+          std::cout << "NON ATOMIC RC\n";
+        default:
+          std::cout << "nvm\n";
+      }
+      assert(classs == RegionMD::ISO);
+      return (RegionBase*)(get_header().rc.load() & ~MASK);
+      //return (RegionBase*)(get_header().bits & ~MASK);
     }
+
+  
+
+    inline size_t get_init_iso_ref_count(size_t count) {
+      return (count << SHIFT) | (uint8_t)RegionMD::OPEN_ISO;
+    }
+
+    
+
+    inline RegionBase* acq_region();
+
+    inline void rel_region(RegionBase* reg);
+    
 
   private:
     inline void set_region(RegionBase* region)
     {
       assert(get_class() == RegionMD::ISO || get_class() == RegionMD::OPEN_ISO);
-      get_header().bits = (size_t)region | (uint8_t)RegionMD::ISO;
+      get_header().rc.store(size_t(region) | (uint8_t)RegionMD::ISO);
+      //get_header().bits = (size_t)region | (uint8_t)RegionMD::ISO;
     }
 
     inline Object* get_scc()
@@ -639,13 +680,15 @@ namespace verona::rt
     inline void mark()
     {
       assert(get_class() == RegionMD::UNMARKED);
-      get_header().bits |= (uint8_t)RegionMD::MARKED;
+      get_header().rc.store(get_header().rc.load() | (uint8_t)RegionMD::MARKED);
+      //get_header().bits |= (uint8_t)RegionMD::MARKED;
     }
 
     inline void mark_iso()
     {
       assert(get_class() == RegionMD::ISO);
-      get_header().bits |= (uint8_t)RegionMD::MARKED;
+      get_header().rc.store(get_header().rc.load() | (uint8_t)RegionMD::MARKED);
+      //get_header().bits |= (uint8_t)RegionMD::MARKED;
     }
 
     inline void unmark()
