@@ -112,7 +112,7 @@ namespace pointer_churn
       gc_name = "SemiSpace";
 
     std::cout << "\n" << std::string(60, '=') << "\n";
-    std::cout << "  POINTER CHURN WITH CONCURRENCY | GC: " << gc_name << "\n";
+    std::cout << "  POINTER CHURN | GC: " << gc_name << "\n";
     std::cout << std::string(60, '=') << "\n";
 
     
