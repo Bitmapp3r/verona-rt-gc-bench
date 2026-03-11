@@ -287,6 +287,15 @@ namespace verona::rt
               // to gc a second time, causing a double-free.
               f->mark();
             }
+            else
+            {
+              // RC is still > 0 after decrementing, meaning this object
+              // may be part of a cycle reachable from the entry point.
+              // Push it onto the lins_stack so that release_cycles can
+              // find and free it, matching the behaviour of
+              // dealloc_object().
+              lins_stack.push(f);
+            }
             break;
           case Object::SCC_PTR:
             f->immutable();
