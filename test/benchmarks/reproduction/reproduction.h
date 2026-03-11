@@ -299,6 +299,8 @@ namespace reproduction
       }
     }
 
+    region_release(root);
+
     // std::cout << "[reproduction] Complete" << std::endl;
   }
 } // namespace reproduction
