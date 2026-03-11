@@ -388,6 +388,19 @@ void run_test(int gridsize, int numsteps, int numwalkers)
         gridsize * gridsize); // <<< thats where testing actually happens.
     }
 
+    // RC: sever all bidirectional links to/from the root so that its
+    // internal reference count drops back to 0, leaving only the single
+    // external (entry-point) reference.  release_internal() expects
+    // entry_point_count == 1 and will abort() otherwise.
+    // Note: Might be best to later find a way to not have the root be part of
+    // the core algorithm/be able to be referenced as the root's refcount
+    // appears to be managed internally and manual modification might cause
+    // issues.
+    if constexpr (rt == RegionType::Rc)
+    {
+      isolate_node<rt>(root);
+    }
+
     delete[] grid;
     delete[] walker_idx;
   }
