@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: MIT
 #include "tree_transform.h"
 
-#include <debug/harness.h>
-#include <test/opt.h>
 #include "../../../src/benchmarker/export_macro.h"
 #include "../benchmarker/benchmark_main_helper.h"
+
+#include <debug/harness.h>
+#include <test/opt.h>
 
 BENCHMARK_WINDOWS_CALLBACK_BRIDGE()
 
@@ -25,12 +26,7 @@ extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
   int transforms = opt.is<int>("-t", 5);
 
   DISPATCH_REGION(rt, test, depth, transforms);
-  
-  return 0;
-}
 
-int main(int argc, char** argv)
-{
-  run_benchmark(argc, argv);
   return 0;
 }
+RUN_BENCHMARK_MAIN()

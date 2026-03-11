@@ -6,6 +6,7 @@
 #include "cpp/cown.h"
 #include "cpp/when.h"
 #include "region/region_base.h"
+
 #include <cstddef>
 #include <debug/harness.h>
 #include <iostream>
@@ -33,7 +34,7 @@ namespace pointer_churn_with_concurrency
    * given number of times.
    **/
 
-    // Graph node structure
+  // Graph node structure
   struct GraphNode : public V<GraphNode>
   {
     GraphNode* edges[MAX_OUT_EDGES] = {nullptr};
@@ -65,7 +66,9 @@ namespace pointer_churn_with_concurrency
   public:
     // The root GraphNode is the iso root of the region. The pointer to it
     // is the region handle used for opening (UsingRegion) and releasing.
-    RegionCown(GraphNode* root, size_t region_id) : root(root), region_id(region_id) {}
+    RegionCown(GraphNode* root, size_t region_id)
+    : root(root), region_id(region_id)
+    {}
     GraphNode* root;
     size_t region_id;
 
@@ -95,7 +98,7 @@ namespace pointer_churn_with_concurrency
     reachable.push_back(node);
 
     // Recursively visit all edges
-    for (auto & edge : node->edges)
+    for (auto& edge : node->edges)
     {
       if (edge != nullptr)
       {
@@ -107,140 +110,139 @@ namespace pointer_churn_with_concurrency
   template<RegionType RT>
   cown_ptr<RegionCown> create_cown(size_t cown_num)
   {
-      // new (RT) GraphNode() creates a new region with a GraphNode as the
-      // iso root. The returned pointer is both the root node and the region
-      // handle.
-      GraphNode* root = new (RT) GraphNode();
-      root->id = 0;
-      auto cown = make_cown<RegionCown>(root, cown_num);
-      return cown;
+    // new (RT) GraphNode() creates a new region with a GraphNode as the
+    // iso root. The returned pointer is both the root node and the region
+    // handle.
+    GraphNode* root = new (RT) GraphNode();
+    root->id = 0;
+    auto cown = make_cown<RegionCown>(root, cown_num);
+    return cown;
   }
 
   template<RegionType RT>
-  void create_chain(size_t num_nodes, size_t inputSeed, size_t cown_num, GraphNode* root)
+  void create_chain(
+    size_t num_nodes, size_t inputSeed, size_t cown_num, GraphNode* root)
   {
-      std::cout << "\n" << std::string(60, '=') << "\n";
-      std::cout << "  REGION #" << cown_num << "\n";
-      std::cout << std::string(60, '=') << "\n\n";
+    std::cout << "\n" << std::string(60, '=') << "\n";
+    std::cout << "  REGION #" << cown_num << "\n";
+    std::cout << std::string(60, '=') << "\n\n";
 
-      {
-        UsingRegion ur(root);
-
-        // For SemiSpace, pre-reserve capacity so that allocating the initial
-        // chain does not trigger a grow (which would invalidate pointers).
-        if constexpr (RT == RegionType::SemiSpace)
-        {
-          region_ensure_available((num_nodes - 1) * vsizeof<GraphNode>);
-        }
-
-        GraphNode* prevNode = root;
-        for (size_t i = 0; i < num_nodes - 1; i++)
-        {
-          GraphNode* node = new GraphNode;
-          node->id = i + 1;
-          prevNode->edges[0] = node;
-          prevNode = node;
-        }
-      }
-  }
-
-  template<RegionType RT>
-  size_t perform_mutations(size_t num_mutations, std::mt19937 rng, size_t cown_num, GraphNode* root)
-  {
+    {
       UsingRegion ur(root);
-      std::uniform_int_distribution<size_t> rndOutEdgeInd(
-        0, MAX_OUT_EDGES - 1);
 
-      std::vector<GraphNode*> reachableNodes;
-      while (num_mutations > 0)
+      // For SemiSpace, pre-reserve capacity so that allocating the initial
+      // chain does not trigger a grow (which would invalidate pointers).
+      if constexpr (RT == RegionType::SemiSpace)
       {
-
-        reachableNodes.clear();
-        // Find all reachable nodes first - this is our "live" set
-        find_reachable_nodes(root, reachableNodes);
-
-        if (reachableNodes.size() == 1)
-        {
-          std::cout << "\n    Only root node remaining, closing and "
-                       "releasing region...\n";
-          break;
-        }
-
-        std::uniform_int_distribution<size_t> rndSrcNodeInd(
-          0, reachableNodes.size() - 1);
-
-        /** MUST NOT include index 0 as it may lead to root node being
-         *selected as destination, which would cause its ref count to be
-         *changed. It appears that the root's ref count might be managed
-         *internally and so manually modifying it like this may cause an error
-         *- it's best to leave it from being referenced.
-         **/
-        std::uniform_int_distribution<size_t> rndDstNodeInd(
-          1, reachableNodes.size() - 1);
-        std::uniform_int_distribution<size_t> rndOutEdgeInd(
-          0, MAX_OUT_EDGES - 1);
-        GraphNode* edgeSrcNode = reachableNodes[rndSrcNodeInd(rng)];
-        GraphNode* newEdgeDstNode = reachableNodes[rndDstNodeInd(rng)];
-
-        size_t edgeIdx = rndOutEdgeInd(rng);
-        GraphNode* oldEdgeDstNode = edgeSrcNode->edges[edgeIdx];
-
-        if (rng() % 2 == 0) // Add/update edge
-        {
-          edgeSrcNode->edges[edgeIdx] = newEdgeDstNode;
-          if constexpr (RT == RegionType::Rc) // Ref count adjustment for RC
-          {
-            incref(newEdgeDstNode);
-          }
-          if (oldEdgeDstNode != nullptr)
-          {
-            // Save ID before decref (which may deallocate the node)
-            size_t oldId = oldEdgeDstNode->id;
-            if constexpr (RT == RegionType::Rc)
-            {
-              decref(oldEdgeDstNode); // Ref count adjustment for RC
-            }
-            std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": "
-                      << oldId << " → " << newEdgeDstNode->id << "\n";
-          }
-          else
-          {
-            std::cout << "  [ADD]    Node " << edgeSrcNode->id << " → Node "
-                      << newEdgeDstNode->id << "\n";
-          }
-        }
-        else // Remove edge
-        {
-          if (oldEdgeDstNode == nullptr)
-          {
-            std::cout << "  [SKIP]   No edge to remove from edge index "
-                      << edgeIdx << " of Node " << edgeSrcNode->id << "\n";
-          }
-          else
-          {
-            // Save ID before decref (which may deallocate the node)
-            size_t oldId = oldEdgeDstNode->id;
-            edgeSrcNode->edges[edgeIdx] = nullptr;
-            if constexpr (RT == RegionType::Rc)
-            {
-              decref(oldEdgeDstNode); // Ref count adjustment for RC
-            }
-            std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " ╳→ Node "
-                      << oldId << "\n";
-          }
-        }
-        num_mutations--;
+        region_ensure_available((num_nodes - 1) * vsizeof<GraphNode>);
       }
-      return num_mutations;
+
+      GraphNode* prevNode = root;
+      for (size_t i = 0; i < num_nodes - 1; i++)
+      {
+        GraphNode* node = new GraphNode;
+        node->id = i + 1;
+        prevNode->edges[0] = node;
+        prevNode = node;
+      }
+    }
+  }
+
+  template<RegionType RT>
+  size_t perform_mutations(
+    size_t num_mutations, std::mt19937 rng, size_t cown_num, GraphNode* root)
+  {
+    UsingRegion ur(root);
+    std::uniform_int_distribution<size_t> rndOutEdgeInd(0, MAX_OUT_EDGES - 1);
+
+    std::vector<GraphNode*> reachableNodes;
+    while (num_mutations > 0)
+    {
+      reachableNodes.clear();
+      // Find all reachable nodes first - this is our "live" set
+      find_reachable_nodes(root, reachableNodes);
+
+      if (reachableNodes.size() == 1)
+      {
+        std::cout << "\n    Only root node remaining, closing and "
+                     "releasing region...\n";
+        break;
+      }
+
+      std::uniform_int_distribution<size_t> rndSrcNodeInd(
+        0, reachableNodes.size() - 1);
+
+      /** MUST NOT include index 0 as it may lead to root node being
+       *selected as destination, which would cause its ref count to be
+       *changed. It appears that the root's ref count might be managed
+       *internally and so manually modifying it like this may cause an error
+       *- it's best to leave it from being referenced.
+       **/
+      std::uniform_int_distribution<size_t> rndDstNodeInd(
+        1, reachableNodes.size() - 1);
+      std::uniform_int_distribution<size_t> rndOutEdgeInd(0, MAX_OUT_EDGES - 1);
+      GraphNode* edgeSrcNode = reachableNodes[rndSrcNodeInd(rng)];
+      GraphNode* newEdgeDstNode = reachableNodes[rndDstNodeInd(rng)];
+
+      size_t edgeIdx = rndOutEdgeInd(rng);
+      GraphNode* oldEdgeDstNode = edgeSrcNode->edges[edgeIdx];
+
+      if (rng() % 2 == 0) // Add/update edge
+      {
+        edgeSrcNode->edges[edgeIdx] = newEdgeDstNode;
+        if constexpr (RT == RegionType::Rc) // Ref count adjustment for RC
+        {
+          incref(newEdgeDstNode);
+        }
+        if (oldEdgeDstNode != nullptr)
+        {
+          // Save ID before decref (which may deallocate the node)
+          size_t oldId = oldEdgeDstNode->id;
+          if constexpr (RT == RegionType::Rc)
+          {
+            decref(oldEdgeDstNode); // Ref count adjustment for RC
+          }
+          std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": " << oldId
+                    << " → " << newEdgeDstNode->id << "\n";
+        }
+        else
+        {
+          std::cout << "  [ADD]    Node " << edgeSrcNode->id << " → Node "
+                    << newEdgeDstNode->id << "\n";
+        }
+      }
+      else // Remove edge
+      {
+        if (oldEdgeDstNode == nullptr)
+        {
+          std::cout << "  [SKIP]   No edge to remove from edge index "
+                    << edgeIdx << " of Node " << edgeSrcNode->id << "\n";
+        }
+        else
+        {
+          // Save ID before decref (which may deallocate the node)
+          size_t oldId = oldEdgeDstNode->id;
+          edgeSrcNode->edges[edgeIdx] = nullptr;
+          if constexpr (RT == RegionType::Rc)
+          {
+            decref(oldEdgeDstNode); // Ref count adjustment for RC
+          }
+          std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " ╳→ Node "
+                    << oldId << "\n";
+        }
+      }
+      num_mutations--;
+    }
+    return num_mutations;
   }
 
   template<RegionType RT>
   void run_test(
-      size_t num_nodes,
-      size_t mutation_per_iter,
-      size_t inputSeed,
-      size_t num_regions,
-      size_t iterations)
+    size_t num_nodes,
+    size_t mutation_per_iter,
+    size_t inputSeed,
+    size_t num_regions,
+    size_t iterations)
   {
     const char* gc_name = "Unknown";
     if constexpr (RT == RegionType::Trace)
@@ -265,10 +267,9 @@ namespace pointer_churn_with_concurrency
 
     for (auto& cown : cowns)
     {
-      when(cown)
-        << [=](auto c) {
-            create_chain<RT>(num_nodes, inputSeed, c->region_id, c->root);
-        };
+      when(cown) << [=](auto c) {
+        create_chain<RT>(num_nodes, inputSeed, c->region_id, c->root);
+      };
     }
 
     const size_t seed = inputSeed + static_cast<size_t>(RT) * 10000;
@@ -278,9 +279,8 @@ namespace pointer_churn_with_concurrency
     {
       for (size_t cown_num = 0; cown_num < num_regions; cown_num++)
       {
-        when(cowns[cown_num])
-          << [=](auto c) {
-            perform_mutations<RT>(mutation_per_iter, rng, cown_num, c->root);
+        when(cowns[cown_num]) << [=](auto c) {
+          perform_mutations<RT>(mutation_per_iter, rng, cown_num, c->root);
         };
       }
     }

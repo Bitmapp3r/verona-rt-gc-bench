@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 #include "gol.h"
 
+#include "../../../src/benchmarker/export_macro.h"
+#include "../benchmarker/benchmark_main_helper.h"
+
 #include <debug/harness.h>
 #include <test/opt.h>
 #include <util/gc_benchmark.h>
-
-#include "../benchmarker/benchmark_main_helper.h"
-#include "../../../src/benchmarker/export_macro.h"
 
 BENCHMARK_WINDOWS_CALLBACK_BRIDGE()
 
@@ -27,12 +27,23 @@ extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
 
   // Print region type
   std::cout << "[gol.cc] Using region type: ";
-  switch(rt) {
-    case RegionType::Trace: std::cout << "Trace"; break;
-    case RegionType::Arena: std::cout << "Arena"; break;
-    case RegionType::Rc:    std::cout << "Rc"; break;
-    case RegionType::SemiSpace: std::cout << "SemiSpace"; break;
-    default: std::cout << "Unknown"; break;
+  switch (rt)
+  {
+    case RegionType::Trace:
+      std::cout << "Trace";
+      break;
+    case RegionType::Arena:
+      std::cout << "Arena";
+      break;
+    case RegionType::Rc:
+      std::cout << "Rc";
+      break;
+    case RegionType::SemiSpace:
+      std::cout << "SemiSpace";
+      break;
+    default:
+      std::cout << "Unknown";
+      break;
   }
   std::cout << std::endl;
 
@@ -51,7 +62,4 @@ extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
   return 0;
 }
 
-int main(int argc, char** argv)
-{
-  return run_benchmark(argc, argv);
-}
+RUN_BENCHMARK_MAIN()

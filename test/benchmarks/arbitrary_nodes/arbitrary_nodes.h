@@ -96,7 +96,9 @@ namespace arbitrary_nodes
   std::vector<size_t> random_regions(size_t regions, size_t size)
   {
     if (regions > size)
-      throw std::invalid_argument("regions must be <= size, received " + std::to_string(regions) + " and " + std::to_string(size));
+      throw std::invalid_argument(
+        "regions must be <= size, received " + std::to_string(regions) +
+        " and " + std::to_string(size));
 
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -122,9 +124,6 @@ namespace arbitrary_nodes
   // Euclidean graph. Euclidean graphs will return to the
   // root after traversal, so every other node will be garbage
   // after traversing and deleting the arcs (think of chinese postman problem).
-  // TODO: Modify so that it partially connects the nodes,
-  // so that you get clusters of nodes that will be disconnected
-  // after traversal.
   {
     for (Node* u : nodes)
     {
@@ -278,8 +277,7 @@ namespace arbitrary_nodes
 
       for (cown_ptr<RegionCown> regionCown : graphRegions)
       {
-        when(regionCown)
-          << [](auto c) { traverse_region<rt>(c->root); };
+        when(regionCown) << [](auto c) { traverse_region<rt>(c->root); };
       }
     }
   }

@@ -84,14 +84,24 @@ namespace gol
   template<RegionType rt>
   void run_test(int size, int generations)
   {
-    std::cout << "LOOOK FOR THISSSSSSSSSSSS";
     std::cout << "[gol] Using region type: ";
-    switch(rt) {
-      case RegionType::Trace: std::cout << "Trace"; break;
-      case RegionType::Arena: std::cout << "Arena"; break;
-      case RegionType::Rc:    std::cout << "Rc"; break;
-      case RegionType::SemiSpace: std::cout << "SemiSpace"; break;
-      default: std::cout << "Unknown"; break;
+    switch (rt)
+    {
+      case RegionType::Trace:
+        std::cout << "Trace";
+        break;
+      case RegionType::Arena:
+        std::cout << "Arena";
+        break;
+      case RegionType::Rc:
+        std::cout << "Rc";
+        break;
+      case RegionType::SemiSpace:
+        std::cout << "SemiSpace";
+        break;
+      default:
+        std::cout << "Unknown";
+        break;
     }
     std::cout << std::endl;
     // Use our new container root
@@ -118,11 +128,6 @@ namespace gol
       set_cell(cx + 1, cy + 2);
 
       root->live_cells = current_grid;
-
-      // std::cout << "Game of Life initialized. Grid: " << size << "x" << size
-      //           << "\n";
-      // check(debug_size() == 6);
-
       for (int gen = 0; gen < generations; gen++)
       {
         for (int y = 0; y < size; y++)
@@ -166,10 +171,6 @@ namespace gol
 
         current_grid = next_grid;
         root->live_cells = current_grid;
-
-        int heap_size = debug_size();
-        // std::cout << "Heap size before region collect: " << heap_size << "\n";
-
         region_collect();
 
         // SemiSpace GC: region_collect() may relocate Cell objects.
@@ -183,22 +184,8 @@ namespace gol
           if (c)
             actual_alive_count++;
         }
-
-        heap_size = debug_size();
-        // std::cout << "Heap size after region collect: " << heap_size << "\n";
-
-        if (heap_size != actual_alive_count + 1)
-        { // +1 for SimRoot
-        //   std::cout << "FAILURE at Gen " << gen << "\n";
-        //   std::cout << "Heap: " << heap_size
-        //             << " | Expected: " << (actual_alive_count + 1) << "\n";
-          // check(heap_size == actual_alive_count + 1);
-        }
       }
-      // std::cout << "Simulation survived " << generations << " generations.\n";
     }
     region_release(root);
-    // Skip debug_check_empty() for benchmarking
   }
-
 }

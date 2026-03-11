@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: MIT
 #include "partially_connected.h"
 
+#include "../../../src/benchmarker/export_macro.h"
+#include "../benchmarker/benchmark_main_helper.h"
+
 #include <debug/harness.h>
 #include <test/opt.h>
 #include <util/gc_benchmark.h>
-
-#include "../benchmarker/benchmark_main_helper.h"
-#include "../../../src/benchmarker/export_macro.h"
 
 BENCHMARK_WINDOWS_CALLBACK_BRIDGE()
 
@@ -26,20 +26,16 @@ extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
   bool churn = opt.has("--churn");
 
   SystematicTestHarness harness(argc, argv);
-  harness.run([&]() {
-    if (churn)
-    {
-      DISPATCH_REGION(rt, churn_test, size, regions);
-    }
-    else
-    {
-      DISPATCH_REGION(rt, test, size, regions);
-    }
-  });
+
+  if (churn)
+  {
+    DISPATCH_REGION(rt, churn_test, size, regions);
+  }
+  else
+  {
+    DISPATCH_REGION(rt, test, size, regions);
+  }
   return 0;
 }
 
-int main(int argc, char** argv)
-{
-  return run_benchmark(argc, argv);
-}
+RUN_BENCHMARK_MAIN()

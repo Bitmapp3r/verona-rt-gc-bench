@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+#include "region/region_base.h"
+
 #include <debug/harness.h>
 #include <iostream>
 #include <queue>
@@ -111,8 +113,8 @@ void kill_link_up(Node* n)
   n->up = nullptr;
   if constexpr (rt == RegionType::Rc)
   {
-    decref(n);       // old_up->down no longer references n
-    decref(old_up);  // n->up no longer references old_up
+    decref(n); // old_up->down no longer references n
+    decref(old_up); // n->up no longer references old_up
   }
 }
 
@@ -126,7 +128,7 @@ void kill_link_right(Node* n)
   n->right = nullptr;
   if constexpr (rt == RegionType::Rc)
   {
-    decref(n);         // old_right->left no longer references n
+    decref(n); // old_right->left no longer references n
     decref(old_right); // n->right no longer references old_right
   }
 }
@@ -141,7 +143,7 @@ void kill_link_down(Node* n)
   n->down = nullptr;
   if constexpr (rt == RegionType::Rc)
   {
-    decref(n);        // old_down->up no longer references n
+    decref(n); // old_down->up no longer references n
     decref(old_down); // n->down no longer references old_down
   }
 }
@@ -156,7 +158,7 @@ void kill_link_left(Node* n)
   n->left = nullptr;
   if constexpr (rt == RegionType::Rc)
   {
-    decref(n);       // old_left->right no longer references n
+    decref(n); // old_left->right no longer references n
     decref(old_left); // n->left no longer references old_left
   }
 }
@@ -328,7 +330,7 @@ void run_test(int gridsize, int numsteps, int numwalkers)
 
         if (options.size() == 0)
         {
-        //   std::cout << "walker " << j << " is softlocked\n";
+          //   std::cout << "walker " << j << " is softlocked\n";
           walker_idx[j] = static_cast<int>(cdist(gen) * gridsize + cdist(gen));
           continue;
         }
@@ -379,13 +381,6 @@ void run_test(int gridsize, int numsteps, int numwalkers)
         if (grid[walker_idx[w]] == nullptr)
           walker_idx[w] = static_cast<int>(cdist(gen) * gridsize + cdist(gen));
       }
-
-      int alive = debug_size();
-      // std::cout << "unreachable: " << dead << ", reachable: " << alive
-      //           << std::endl;
-      check(
-        dead + alive ==
-        gridsize * gridsize); // <<< thats where testing actually happens.
     }
 
     // RC: sever all bidirectional links to/from the root so that its

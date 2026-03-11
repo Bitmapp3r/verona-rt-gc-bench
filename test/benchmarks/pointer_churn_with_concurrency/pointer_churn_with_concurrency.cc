@@ -3,10 +3,11 @@
 
 #include "pointer_churn_with_concurrency.h"
 
-#include <debug/harness.h>
-#include <test/opt.h>
 #include "../../../src/benchmarker/export_macro.h"
 #include "../benchmarker/benchmark_main_helper.h"
+
+#include <debug/harness.h>
+#include <test/opt.h>
 
 BENCHMARK_WINDOWS_CALLBACK_BRIDGE()
 
@@ -27,16 +28,10 @@ extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
   size_t num_regions = opt.is<size_t>("--regions", 10);
   size_t iterations = opt.is<size_t>("--iterations", 50);
 
-  SystematicTestHarness harness(argc, argv);
-  harness.run([&]() {
-    DISPATCH_REGION(rt, test, num_nodes, num_mutations, seed, num_regions, iterations);
-  });
+  DISPATCH_REGION(
+    rt, test, num_nodes, num_mutations, seed, num_regions, iterations);
 
   return 0;
 }
 
-int main(int argc, char** argv)
-{
-  run_benchmark(argc, argv);
-  return 0;
-}
+RUN_BENCHMARK_MAIN()

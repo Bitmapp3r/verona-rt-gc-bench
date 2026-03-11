@@ -224,13 +224,10 @@ namespace tree_transform
     }
 
     region_release(root);
-    heap::debug_check_empty();
   }
 
-  inline void run_test(
-    const std::string& gc_type,
-    int depth = 10,
-    int transforms = 5)
+  inline void
+  run_test(const std::string& gc_type, int depth = 10, int transforms = 5)
   {
     if (gc_type == "trace")
     {

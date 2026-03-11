@@ -60,7 +60,10 @@ namespace partially_connected
       id = num_nodes;
     }
 
-    ~Node() {std::cout << "node " << id << " died\n";}
+    ~Node()
+    {
+      std::cout << "node " << id << " died\n";
+    }
 
     void trace(ObjectStack& st) const
     {
@@ -146,16 +149,19 @@ namespace partially_connected
     return result;
   }
 
-  std::pair<size_t, size_t> random_pair(int max) {
+  std::pair<size_t, size_t> random_pair(int max)
+  {
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<size_t> dist(0, max - 1);
-    if (max == 1) {
+    if (max == 1)
+    {
       return std::make_pair(0, 0);
     }
     size_t first = dist(gen);
     size_t second;
-    do {
+    do
+    {
       second = dist(gen);
     } while (first == second);
     return std::make_pair(first, second);
@@ -167,9 +173,6 @@ namespace partially_connected
   // Euclidean graph. Euclidean graphs will return to the
   // root after traversal, so every other node will be garbage
   // after traversing and deleting the arcs (think of chinese postman problem).
-  // TODO: Modify so that it partially connects the nodes,
-  // so that you get clusters of nodes that will be disconnected
-  // after traversal.
   {
     for (Node* u : nodes)
     {
@@ -193,17 +196,22 @@ namespace partially_connected
   }
 
   template<RegionType rt>
-  void partially_connect(const std::vector<Node*>& nodes) {
+  void partially_connect(const std::vector<Node*>& nodes)
+  {
     std::random_device rd;
     std::mt19937 gen(rd());
 
     std::uniform_real_distribution<float> dist(0.0, 1.0);
     float connectedness = 0.7f;
-    for (Node* u : nodes) {
-      if (!u) continue;
+    for (Node* u : nodes)
+    {
+      if (!u)
+        continue;
 
-      for (Node* v : nodes) {
-        if (!v || u == v) continue;
+      for (Node* v : nodes)
+      {
+        if (!v || u == v)
+          continue;
 
         if (dist(gen) < connectedness)
         {
@@ -218,7 +226,8 @@ namespace partially_connected
   }
 
   template<RegionType rt>
-  std::vector<cown_ptr<RegionCown>> createGraph(int size, int regions, bool partial = false)
+  std::vector<cown_ptr<RegionCown>>
+  createGraph(int size, int regions, bool partial = false)
   {
     std::vector<size_t> region_sizes = random_regions(regions, size);
     std::cout << "Region sizes: ";
@@ -301,7 +310,10 @@ namespace partially_connected
     if (!src || !dst)
       return false;
 
-    if (std::find(src->neighbours.begin(), src->neighbours.end(), dst) == src->neighbours.end()) {
+    if (
+      std::find(src->neighbours.begin(), src->neighbours.end(), dst) ==
+      src->neighbours.end())
+    {
       src->neighbours.push_back(dst);
       if constexpr (rt == RegionType::Rc)
       {
@@ -310,7 +322,6 @@ namespace partially_connected
     }
     return true;
   }
-
 
   template<RegionType rt>
   Node* traverse(Node* cur, Node* dst)
@@ -356,7 +367,6 @@ namespace partially_connected
     }
   }
 
-
   template<RegionType rt>
   void churn_region(RegionRoot* sentinel)
   {
@@ -365,15 +375,18 @@ namespace partially_connected
     Node* cur = sentinel->bridge;
     std::vector<Node*> workingSet;
     int WORKING_SET_SIZE = 20;
-    int CHURN_EPOCHS =  1;
+    int CHURN_EPOCHS = 1;
     int NEW_NODES = 4;
 
     // For RC: collect removed edge targets for deferred decref.
     std::vector<Node*> removed_targets;
 
-    for (int k = 0; k < CHURN_EPOCHS; k++) {
+    for (int k = 0; k < CHURN_EPOCHS; k++)
+    {
       workingSet.clear();
-      while (cur && !cur->neighbours.empty() && (int)workingSet.size() < WORKING_SET_SIZE) {
+      while (cur && !cur->neighbours.empty() &&
+             (int)workingSet.size() < WORKING_SET_SIZE)
+      {
         Node* dst = random_element(cur->neighbours);
         workingSet.push_back(dst);
         if constexpr (rt == RegionType::Rc)
@@ -386,7 +399,8 @@ namespace partially_connected
       // create some nodes and add them to the working set.
       std::vector<Node*> new_node_list;
       int new_nodes = 0;
-      while ((int)workingSet.size() < WORKING_SET_SIZE && new_nodes < NEW_NODES) {
+      while ((int)workingSet.size() < WORKING_SET_SIZE && new_nodes < NEW_NODES)
+      {
         Node* n = new Node();
         workingSet.push_back(n);
         new_node_list.push_back(n);
@@ -394,8 +408,10 @@ namespace partially_connected
       }
 
       // link the working set together.
-      if ((int)workingSet.size() > 2) {
-        for (int i = 0; i < WORKING_SET_SIZE; i++) {
+      if ((int)workingSet.size() > 2)
+      {
+        for (int i = 0; i < WORKING_SET_SIZE; i++)
+        {
           auto [first, second] = random_pair(workingSet.size());
           addArc<rt>(workingSet.at(first), workingSet.at(second));
         }
@@ -424,8 +440,6 @@ namespace partially_connected
     }
   }
 
-
-
   template<RegionType rt>
   void run_test(int size, int regions)
   {
@@ -435,18 +449,21 @@ namespace partially_connected
 
       for (cown_ptr<RegionCown> regionCown : graphRegions)
       {
-        when(regionCown)
-          << [](auto c) { traverse_region<rt>(c->root); };
+        when(regionCown) << [](auto c) { traverse_region<rt>(c->root); };
       }
     }
   }
 
   template<RegionType rt>
-  void multi_churn(cown_ptr<RegionCown>& graph, int churnsPerCollection, int churns) {
-    for (int i = 0; i < churns; i++) {
-      when (graph) << [](auto c) { churn_region<rt>(c->root); };
-      if (i > 0 && i % churnsPerCollection == 0) {
-        when (graph) << [](auto c) {
+  void
+  multi_churn(cown_ptr<RegionCown>& graph, int churnsPerCollection, int churns)
+  {
+    for (int i = 0; i < churns; i++)
+    {
+      when(graph) << [](auto c) { churn_region<rt>(c->root); };
+      if (i > 0 && i % churnsPerCollection == 0)
+      {
+        when(graph) << [](auto c) {
           std::cout << "RUNNING GARBAGE COLLECTION\n";
           UsingRegion rr(c->root);
           region_collect();
@@ -462,11 +479,10 @@ namespace partially_connected
       std::vector<cown_ptr<RegionCown>> graphRegions =
         createGraph<rt>(size, regions, true);
 
-      for (cown_ptr<RegionCown>& regionCown : graphRegions) {
+      for (cown_ptr<RegionCown>& regionCown : graphRegions)
+      {
         multi_churn<rt>(regionCown, 4, 20);
       }
     }
   }
 } // namespace partially_connected
-
-// might be causing isssue because of size 1 regions ?????

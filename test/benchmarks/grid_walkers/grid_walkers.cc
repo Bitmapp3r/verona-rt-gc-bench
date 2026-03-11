@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: MIT
 #include "grid_walkers.h"
 
-#include "util/gc_benchmark.h"
 #include "../../../src/benchmarker/export_macro.h"
 #include "../benchmarker/benchmark_main_helper.h"
+#include "util/gc_benchmark.h"
 
 BENCHMARK_WINDOWS_CALLBACK_BRIDGE()
 
@@ -27,8 +27,4 @@ extern "C" BENCHMARK_EXPORT int run_benchmark(int argc, char** argv)
   return 0;
 }
 
-int main(int argc, char** argv)
-{
-  run_benchmark(argc, argv);
-  return 0;
-}
+RUN_BENCHMARK_MAIN()

@@ -130,10 +130,6 @@ namespace pointer_churn
 
     while (NUM_MUTATIONS_REM > 0)
     {
-      // std::cout << "\n" << std::string(60, '=') << "\n";
-      // std::cout << "  REGION #" << region_number++
-      //           << " | Mutations Remaining: " << NUM_MUTATIONS_REM << "\n";
-      // std::cout << std::string(60, '=') << "\n\n";
       // Open new region and setup the graph
       auto* root = new (RT) GraphNode;
       root->id = 0;
@@ -175,8 +171,6 @@ namespace pointer_churn
 
           if (reachableNodes.size() == 1)
           {
-            // std::cout << "\n    Only root node remaining, closing and "
-            //              "releasing region...\n";
             break;
           }
 
@@ -214,23 +208,11 @@ namespace pointer_churn
               {
                 decref(oldEdgeDstNode); // Ref count adjustment for RC
               }
-              // std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": "
-              //           << oldId << " -> " << newEdgeDstNode->id << "\n";
-            }
-            else
-            {
-              // std::cout << "  [ADD]    Node " << edgeSrcNode->id << " -> Node "
-              //           << newEdgeDstNode->id << "\n";
             }
           }
           else // Remove edge
           {
-            if (oldEdgeDstNode == nullptr)
-            {
-              // std::cout << "  [SKIP]   No edge to remove from edge index "
-              //           << edgeIdx << " of Node " << edgeSrcNode->id << "\n";
-            }
-            else
+            if (oldEdgeDstNode != nullptr)
             {
               // Save ID before decref (which may deallocate the node)
               size_t oldId = oldEdgeDstNode->id;
@@ -239,8 +221,6 @@ namespace pointer_churn
               {
                 decref(oldEdgeDstNode); // Ref count adjustment for RC
               }
-              // std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " X-> Node "
-              //           << oldId << "\n";
             }
           }
 
@@ -258,10 +238,6 @@ namespace pointer_churn
             }
             reachableNodes.clear();
             find_reachable_nodes(root, reachableNodes);
-            // std::cout << "  " << std::string(56, '-') << "\n";
-            // std::cout << "  [REGION STATS] Allocated: " << debug_size()
-            //           << " | Reachable: " << reachableNodes.size() << "\n";
-            // std::cout << "  " << std::string(56, '-') << "\n\n";
           }
 
           NUM_MUTATIONS_REM--;
@@ -277,52 +253,9 @@ namespace pointer_churn
         }
         reachableNodes.clear();
         find_reachable_nodes(root, reachableNodes);
-        // std::cout << "\n  " << std::string(56, '-') << "\n";
-        // std::cout << "  [REGION FINAL] Allocated: " << debug_size()
-        //           << " | Reachable: " << reachableNodes.size() << "\n";
-        // std::cout << "  " << std::string(56, '-') << "\n\n\n";
       }
       // Release region and repeat if we still have mutations to perform
       region_release(root);
     }
   }
-
-  // void run_test(
-  //   const std::string& gc_type,
-  //   size_t num_nodes,
-  //   size_t num_mutations,
-  //   size_t inputSeed)
-  // {
-  //   if (gc_type == "trace")
-  //   {
-  //     std::cout << "\n=========================================\n";
-  //     std::cout << "|  Pointer Churn Test: Trace GC         |\n";
-  //     std::cout << "=========================================\n";
-  //     test_pointer_churn<RegionType::Trace>(
-  //       num_nodes, num_mutations, inputSeed);
-  //   }
-  //   else if (gc_type == "arena")
-  //   {
-  //     std::cout << "\n=========================================\n";
-  //     std::cout << "|  Pointer Churn Test: Arena            |\n";
-  //     std::cout << "=========================================\n";
-  //     test_pointer_churn<RegionType::Arena>(
-  //       num_nodes, num_mutations, inputSeed);
-  //   }
-  //   else if (gc_type == "rc")
-  //   {
-  //     std::cout << "\n=========================================\n";
-  //     std::cout << "|  Pointer Churn Test: RC GC            |\n";
-  //     std::cout << "=========================================\n";
-  //     test_pointer_churn<RegionType::Rc>(num_nodes, num_mutations, inputSeed);
-  //   }
-  //   else if (gc_type == "semispace")
-  //   {
-  //     std::cout << "\n=========================================\n";
-  //     std::cout << "|  Pointer Churn Test: SemiSpace GC     |\n";
-  //     std::cout << "=========================================\n";
-  //     test_pointer_churn<RegionType::SemiSpace>(
-  //       num_nodes, num_mutations, inputSeed);
-  //   }
-  // }
 }
