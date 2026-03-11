@@ -7,8 +7,17 @@
 int main(int argc, char** argv)
 {
   opt::Opt opt(argc, argv);
+  Logging::enable_logging();
+  size_t cores = 6;
+  Scheduler& sched = Scheduler::get();
+  sched.init(cores);
+  sched.set_fair(false);
+  sched.set_concurrentGC(false);
 
   test_walker(40, 20, 10);
+  sched.run();
+  //  test();
+  puts("done");
   return 0;
 }
 
@@ -41,6 +50,16 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
     numwalkers = std::atoi(argv[3]);
   }
 
+ Logging::enable_logging();
+  size_t cores = 6;
+  Scheduler& sched = Scheduler::get();
+  sched.init(cores);
+  sched.set_fair(false);
+  sched.set_concurrentGC(false);
+
   test_walker(gridsize, numsteps, numwalkers);
+  sched.run();
+  //  test();
+  puts("done");
   return 0;
 }

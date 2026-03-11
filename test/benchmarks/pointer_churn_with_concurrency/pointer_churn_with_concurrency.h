@@ -271,6 +271,6 @@ namespace pointer_churn_with_concurrency
     std::cout << "\n" << std::string(60, '=') << "\n";
     std::cout << "  POINTER CHURN WITH CONCURRENCY\n";
     std::cout << std::string(60, '=') << "\n";
-    test_pointer_churn<RegionType::Rc>(num_nodes, mutation_per_iter, inputSeed, num_regions, iterations);
+    test_pointer_churn<RegionType::Trace>(num_nodes, mutation_per_iter, inputSeed, num_regions, iterations);
   }
 }

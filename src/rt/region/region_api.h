@@ -118,7 +118,7 @@ namespace verona::rt::api
   }
 
   template<typename T = Object>
-  void region_physical_release(Object* r);
+  void region_physical_release(Object* r, RegionBase* reg);
 
   template<typename T = Object>
   inline void region_release(Object* r);
@@ -202,9 +202,14 @@ inline void schedule_gc(RegionBase* reg, Object* entry) { // FIX THIS FUNCtiON A
       if (reg->isAlive.load()) {
         {
           UsingRegion rr(entry, false, reg); // false = forGC
-          goto task_dec;
+          region_collect();
+          //goto task_dec;
         }
         /*
+        subreg 2 is probably tring to GC whilst the logical release didnt' rel_region.
+
+
+
         // rr.isOpen must be populated by the return value of open_region
         if (rr.isOpen) {
           if (check_gc_condition(entry)) {
@@ -222,7 +227,8 @@ task_dec:
       // CRITICAL PATH: This always runs, preventing the "Early Return Leak"
       if (reg->task_dec()) {
         Logging::cout() << "Refcount hit 0 in GC Task. Physically releasing region.\n";
-        region_physical_release(entry);
+        RegionBase* r = entry->acq_region();
+        Region::region_physical_release(entry, r);
       }
     };
 
@@ -291,7 +297,7 @@ task_dec:
     // std::memory_order_release ensures all our work inside the region is visible 
     // to the next thread that acquires it.
     
-    if (forWork) {
+    if (forWork && Scheduler::do_concurrentGC()) {
       schedule_gc(md, entry);
     }
     
@@ -485,26 +491,13 @@ task_dec:
   }
 
 
-  template<typename T>
-  inline void region_physical_release(Object* r) {
-    Logging::cout() << "reached region_physical_release on object: " << r << "\n";
-    with_region_stats(r->get_region(), "Region release", [&]() {
-      Region::release(r);
-    });
-  }
-
+  
+  
 
   template<typename T>
   inline void region_release(Object* r)
   {
-    Logging::cout() << "reached region_release on object " << r << "\n";
-    RegionBase* reg = r->get_region();
-    reg->isAlive.store(false, std::memory_order_release);
-
-    if (reg->task_dec()) {
-      //Logging::cout() << "physically releasing region\n";
-      region_physical_release(r);
-    }
+    Region::release(r);
   }
 
   /**

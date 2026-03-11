@@ -95,7 +95,7 @@ namespace reproduction
   public:
     Organism* root;
     int gen = 0;
-    Species(RegionType rt) {};
+    Species(RegionType rt) {root = new (rt) Organism();};
     ~Species() {region_release(root);}
   };
   // ============================================================
@@ -195,10 +195,10 @@ namespace reproduction
     
     auto species1 = make_cown<Species>(rt);
     when(species1) << [=](auto s) {
-      s->root = new (rt) Organism();
+      //s->root = new (rt) Organism();
       {
         UsingRegion rr(s->root);
-
+        
         // Build initial ring
         Organism* first = make_organism();
         s->root->next = first;

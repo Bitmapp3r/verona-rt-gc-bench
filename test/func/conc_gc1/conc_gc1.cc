@@ -39,10 +39,10 @@ class RegionOwner {
 public:
     Reg* reg;
     RegionOwner() {
-        reg = new (RegionType::Trace) Reg;
-        Reg* sub_reg = new (RegionType::Trace) Reg;
+        reg = new (RegionType::Arena) Reg;
+        Reg* sub_reg = new (RegionType::Rc) Reg;
         reg->next = sub_reg;
-        Logging::cout() << (void*)reg << " (" << reg << ")" <<  
+        std::cout << (void*)reg << " (" << reg << ")" <<  
             " region points to region " 
                         << (void*)sub_reg << " (" << sub_reg << ")\n";
     }
@@ -61,7 +61,8 @@ void test() {
         Logging::cout() << "hello...?\n";
         //schedule_gc(c->reg);
         {
-            UsingRegion rr(c->reg);
+           UsingRegion rr(c->reg);
+            //std::cout << ((Object*)(c->reg))->is_opened() << "\n";  
             c->reg->root = new Node(0);
             c->reg->root->next = new Node(1);
         }

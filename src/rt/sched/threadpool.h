@@ -74,6 +74,7 @@ namespace verona::rt
     bool teardown_in_progress = false;
 
     bool fair = false;
+    bool concurrentGC = true;
 
     ThreadState state;
 
@@ -141,6 +142,16 @@ namespace verona::rt
       Logging::cout() << "Set fair: " << fair << Logging::endl;
       auto& s = get();
       s.fair = fair;
+    }
+
+    static void set_concurrentGC(bool con) {
+      auto& s = get();
+      s.concurrentGC = con;
+    }
+
+    static bool do_concurrentGC() {
+      auto& s = get();
+      return s.concurrentGC;
     }
 
     static bool is_teardown_in_progress()

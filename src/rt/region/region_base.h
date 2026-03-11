@@ -66,7 +66,7 @@ namespace verona::rt
 
     inline bool task_dec() { 
       int old_refcount = owners.fetch_sub(1, std::memory_order_acq_rel);
-      Logging::cout() << "in task_dec: old_refcount = " << old_refcount << "\n";
+      //std::cout << "in task_dec: old_refcount = " << old_refcount << "\n";
       if (old_refcount == 1) {
         // actually free the region
         return true;
@@ -75,7 +75,7 @@ namespace verona::rt
     }
     inline void task_inc() {
       owners.fetch_add(1, std::memory_order_relaxed);
-      Logging::cout() << "task_inc\n";
+      //std::cout << "task_inc\n";
     }
     
     private:

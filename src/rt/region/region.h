@@ -182,17 +182,18 @@ namespace verona::rt
      **/
     static void release(Object* o)
     {
-      assert(o->debug_is_iso() || o->is_opened());
-      ObjectStack collect;
-      Logging::cout() << "release on object: " << o << "\n";
-      Region::release_internal(o, collect);
+      //RegionBase* reg = r->get_region();
+      RegionBase* reg = o->acq_region();
+      std::cout << "acuired region in Region::release on object " << o << "\n";
+      reg->isAlive.store(false, std::memory_order_release);
 
-      while (!collect.empty())
-      { 
-        Logging::cout() << "hasdkfasdf\n";
-        o = collect.pop();
-        assert(o->debug_is_iso());
-        Region::logical_release_internal(o, collect);
+      if (reg->task_dec()) {
+        std::cout << "physically releasing region\n";
+        region_physical_release(o, reg);
+        std::cout << "released region\n";
+      } else {
+        std::cout << "release region in Region::release on object " << o << "\n";
+        o->rel_region(reg);
       }
     }
 
@@ -208,43 +209,67 @@ namespace verona::rt
       return o->get_region();
     }
 
-  private:
-
+    
     static void logical_release_internal(Object* o, ObjectStack& collect) 
     {
       Logging::cout() << "logical release internal on object; " <<  o << "\n";
-      auto r = o->get_region();
+      //auto r = o->get_region();
+      RegionBase* r = o->acq_region();
       r->isAlive.store(false, std::memory_order_release);
-
+      
       if (r->task_dec()) {
         Logging::cout() << "physically releasing sub region\n";
         with_region_stats(r, "Subregion release", [&]() {
-          release_internal(o, collect);
+          release_internal(o, r, collect);
         });
-      } 
+      } else {
+        o->rel_region(r);
+      }
     }
 
+    static void region_physical_release(Object* r, RegionBase* reg) {
+      std::cout << "reached region_physical_release on object: " << r << "\n";
+      with_region_stats(reg, "Region release", [&]() {
+
+        assert(r->debug_is_iso() || r->is_opened());
+        ObjectStack collect;
+        Logging::cout() << "release on object: " << r << "\n";
+        release_internal(r, reg, collect);
+
+        while (!collect.empty())
+        { 
+          Logging::cout() << "hasdkfasdf\n";
+          r = collect.pop();
+          assert(r->debug_is_iso());
+          logical_release_internal(r, collect);
+        }
+      });
+  }
+
+
+    
+    private:
     /**
      * Internal method for releasing and deallocating regions, that takes
      * a worklist (represented by `f` and `collect`).
      *
      * We dispatch based on the type of region represented by `o`.
      **/
-    static void release_internal(Object* o, ObjectStack& collect)
+    static void release_internal(Object* o, RegionBase* reg, ObjectStack& collect)
     {
       Logging::cout() << "release internal on object: " << o << "\n"; 
-      auto r = o->get_region();
-      switch (Region::get_type(r))
+      //auto r = o->get_region();
+      switch (Region::get_type(reg))
       {
         case RegionType::Trace:
-          ((RegionTrace*)r)->release_internal(o, collect);
+          ((RegionTrace*)reg)->release_internal(o, collect);
           return;
         case RegionType::Arena:
-          ((RegionArena*)r)->release_internal(o, collect);
+          ((RegionArena*)reg)->release_internal(o, collect);
           return;
         case RegionType::Rc:
         {
-          ((RegionRc*)r)->release_internal(o, collect);
+          ((RegionRc*)reg)->release_internal(o, collect);
           return;
         }
         default:
@@ -259,7 +284,29 @@ namespace verona::rt
   }
 
   RegionBase* Object::acq_region() {
-      assert(get_class() == RegionMD::ISO || get_class() == RegionMD::OPEN_ISO);
+    auto classs = get_class();
+    /*  switch (classs) {
+        case RegionMD::ISO:
+          std::cout << "ISO\n";
+          break; 
+        case RegionMD::UNMARKED:  
+          std::cout << "HUHH???\n";
+          break;
+        case RegionMD::MARKED:
+          std::cout << "MARKED\n";
+          break;
+        case RegionMD::OPEN_ISO:
+          std::cout << "OEPN ISO\n";
+          break;
+        case RegionMD::RC:
+          std::cout << "RC\n";
+          break;
+        case RegionMD::NONATOMIC_RC:
+          std::cout << "NON ATOMIC RC\n";
+        default:
+          std::cout << "nvm\n";
+      }*/
+      assert(classs == RegionMD::ISO || classs == RegionMD::OPEN_ISO);
       while(true) { 
         size_t state = get_header().rc.load();
         if ((RegionMD)(state & MASK) == OPEN_ISO) {
@@ -288,7 +335,10 @@ namespace verona::rt
               std::cout << "This shouldn't be possible\n";
               continue;
             }
+            //assert(get_class() == RegionMD::OPEN_ISO); <--- only wanted when debugging Rc
+            //std::cout << "object: " << this << "region: " << reg << "\n";
             return reg;
+            
           } else {
           snmalloc::Aal::pause();
           }
@@ -299,7 +349,7 @@ namespace verona::rt
     // THERES A RACE CONDITION HERE
     void Object::rel_region(RegionBase* reg) {
       // not actual region release. but releasing us from opening the region ie close
-      
+      //std::cout << "object: " << this << "region: " << reg << "\n";
       while(true) {
         size_t state = get_header().rc.load();
         //RegionBase* reg = (RegionBase*)(state & ~MASK);
@@ -315,8 +365,8 @@ namespace verona::rt
           case RegionType::Rc:
             ((RegionRc*)reg)->entry_point_count.store(state >> SHIFT);
             new_state = ((RegionRc*)reg)->close_state(this);
-            break;
             success = get_header().rc.compare_exchange_strong(state, new_state);
+            break;
         } 
         if (success) {
           return;

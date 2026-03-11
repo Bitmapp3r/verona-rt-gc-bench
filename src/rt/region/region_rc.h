@@ -164,28 +164,8 @@ namespace verona::rt
 
     size_t close_state(Object* o) {
       //get_header().rc.store(size_t(region) | (uint8_t)RegionMD::ISO);
-      auto classs = get_class();
-      switch (classs) {
-        case RegionMD::ISO:
-          break; 
-        case RegionMD::UNMARKED:
-          std::cout << "HUHH???\n";
-          break;
-        case RegionMD::MARKED:
-          std::cout << "MARKED\n";
-          break;
-        case RegionMD::OPEN_ISO:
-          std::cout << "OEPN ISO\n";
-          break;
-        case RegionMD::RC:
-          std::cout << "RC\n";
-          break;
-        case RegionMD::NONATOMIC_RC:
-          std::cout << "NON ATOMIC RC\n";
-        default:
-          std::cout << "nvm\n";
-      }
-      assert(get_class() == RegionMD::OPEN_ISO);
+      
+      assert(o->get_class() == RegionMD::OPEN_ISO);
       return (size_t)this | (uint8_t)RegionMD::ISO;
     } 
 
@@ -279,7 +259,7 @@ namespace verona::rt
      **/
     void release_internal(Object* o, ObjectStack& collect)
     {
-      open(o);
+      //open(o);
       assert(o->get_class() == RegionMD::OPEN_ISO);
       if (!decref_inner(o))
       {

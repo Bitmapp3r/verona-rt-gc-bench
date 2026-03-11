@@ -445,20 +445,22 @@ namespace verona::rt
 
     inline Object* get_next_any_mark()
     {
+      RegionMD _class = get_class();
       assert(
-        (get_class() == RegionMD::MARKED) ||
-        (get_class() == RegionMD::UNMARKED) ||
-        (get_class() == RegionMD::PENDING) || (get_class() == RegionMD::ISO));
+        (_class == RegionMD::MARKED) ||
+        (_class == RegionMD::UNMARKED) ||
+        (_class == RegionMD::PENDING) || (_class == RegionMD::ISO));
 
       return (Object*)(get_header().bits & ~MASK);
     }
 
     inline size_t get_ref_count()
     {
+      RegionMD _class = get_class();
       assert(
-        (get_class() == RegionMD::OPEN_ISO) ||
-        (get_class() == RegionMD::MARKED) ||
-        (get_class() == RegionMD::UNMARKED));
+        (_class == RegionMD::OPEN_ISO) ||
+        (_class == RegionMD::MARKED) ||
+        (_class == RegionMD::UNMARKED));
       //return (size_t)(get_header().bits >> SHIFT);
       return (size_t)(get_header().rc.load() >> SHIFT);
       // need to use atomics here because of concurrent GC.
@@ -466,19 +468,21 @@ namespace verona::rt
 
     inline void incref_rc_region()
     {
+      RegionMD _class = get_class();
       assert(
-        (get_class() == RegionMD::OPEN_ISO) ||
-        (get_class() == RegionMD::MARKED) ||
-        (get_class() == RegionMD::UNMARKED));
+        (_class == RegionMD::OPEN_ISO) ||
+        (_class == RegionMD::MARKED) ||
+        (_class == RegionMD::UNMARKED));
       get_header().bits += ONE_RC;
     }
 
     inline void decref_rc_region()
     {
+      RegionMD _class = get_class();
       assert(
-        (get_class() == RegionMD::OPEN_ISO) ||
-        (get_class() == RegionMD::MARKED) ||
-        (get_class() == RegionMD::UNMARKED));
+        (_class == RegionMD::OPEN_ISO) ||
+        (_class == RegionMD::MARKED) ||
+        (_class == RegionMD::UNMARKED));
       get_header().bits -= ONE_RC;
     }
 
@@ -494,7 +498,7 @@ namespace verona::rt
       //get_header().bits = (count << SHIFT) | (uint8_t)RegionMD::OPEN_ISO;
       size_t new_state = (count << SHIFT) | (uint8_t)RegionMD::OPEN_ISO;
       get_header().rc.store(new_state);
-    }
+    } 
 
     inline void set_next(Object* o)
     {
@@ -503,6 +507,7 @@ namespace verona::rt
     }
 
   public:
+    // you must have acquired the region before you call this function.
     inline RegionBase* get_region()
     {
       auto classs = get_class();
