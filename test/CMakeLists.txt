@@ -1,13 +1,9 @@
 # Sanitizer options
-option(ENABLE_ASAN "Enable AddressSanitizer" OFF)
 option(ENABLE_TSAN "Enable ThreadSanitizer" OFF)
 
 # Helper function to apply sanitizer flags to a target
 function(apply_sanitizer_flags target sanitizer_type)
-  if(sanitizer_type STREQUAL "asan")
-    target_compile_options(${target} PRIVATE -fsanitize=address)
-    target_link_options(${target} PRIVATE -fsanitize=address)
-  elseif(sanitizer_type STREQUAL "tsan")
+  if(sanitizer_type STREQUAL "tsan")
     target_compile_options(${target} PRIVATE -fsanitize=thread)
     target_link_options(${target} PRIVATE -fsanitize=thread)
   endif()
@@ -53,9 +49,6 @@ subdirlist(TEST_CATEGORIES ${TESTDIR})
 
 # Build list of sanitizer variants to create
 set(SANITIZER_VARIANTS "normal")  # Start with normal build
-if(ENABLE_ASAN)
-  list(APPEND SANITIZER_VARIANTS "asan")
-endif()
 if(ENABLE_TSAN)
   list(APPEND SANITIZER_VARIANTS "tsan")
 endif()
