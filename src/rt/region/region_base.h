@@ -49,9 +49,9 @@ namespace verona::rt
       AllObjects,
     };
 
-    enum ConcurrentState 
+    enum ConcurrentState
     {
-      Open, 
+      Open,
       Closed,
       Collecting
     };
@@ -65,7 +65,7 @@ namespace verona::rt
       //release_control = new (space) std::atomic<RegReleaseControl>();
     }
 
-    inline bool task_dec() { 
+    inline bool task_dec() {
       int old_refcount = owners.fetch_sub(1, std::memory_order_acq_rel);
       Logging::cout() << "in task_dec: old_refcount = " << old_refcount << "\n";
       if (old_refcount == 1) {
@@ -78,9 +78,9 @@ namespace verona::rt
       owners.fetch_add(1, std::memory_order_relaxed);
       Logging::cout() << "task_inc\n";
     }
-    
+
     private:
-    
+
     inline void dealloc()
     {
       ExternalReferenceTable::dealloc();
@@ -89,9 +89,8 @@ namespace verona::rt
     }
   };
 
-#ifdef ENABLE_BENCHMARKING
   // Callback for region GC/release operations
-  inline thread_local std::function<void(uint64_t, RegionType, size_t, size_t)>* 
+  inline thread_local std::function<void(uint64_t, RegionType, size_t, size_t)>*
     gc_callback = nullptr;
 
   inline void set_gc_callback(
@@ -105,6 +104,5 @@ namespace verona::rt
   {
     return gc_callback;
   }
-#endif // ENABLE_BENCHMARKING
 
 } // namespace verona::rt
