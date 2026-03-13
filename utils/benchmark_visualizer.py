@@ -116,7 +116,7 @@ def plot(all_results, output_path, test_name=None):
     runs = [r[0] for r in first_result["runs"]]
     x = range(len(runs))
 
-    region_color_map = {"trace": colors[0], "arena": colors[1], "rc": colors[2]}
+    region_color_map = {"trace": colors[0], "arena": colors[1], "rc": colors[2], "semispace": colors[3]}
     avg_gc_us_data = [
         [(r[1] / r[2]) / 1e3 for r in results["runs"]]
         for results in all_results.values()
@@ -135,7 +135,7 @@ def plot(all_results, output_path, test_name=None):
         region_color_map.get(
             "trace"
             if "trace" in name
-            else ("arena" if "arena" in name else ("rc" if "rc" in name else None)),
+            else ("arena" if "arena" in name else ("rc" if "rc" in name else ("semispace" if "semispace" in name else None))),
             colors[idx % len(colors)],
         )
         for idx, (name) in enumerate(all_results.keys())
@@ -181,7 +181,10 @@ def plot(all_results, output_path, test_name=None):
         if len(gc_times) < 2:
             continue
         color = region_color_map.get(
-            "trace" if "trace" in name else ("arena" if "arena" in name else ("rc" if "rc" in name else None)),
+            "trace" if "trace" in name else (
+                "arena" if "arena" in name else (
+                    "rc" if "rc" in name else (
+                        "semispace" if "semispace" in name else None))),
             colors[idx % len(colors)],
         )
         data = np.array(gc_times)
@@ -363,7 +366,7 @@ if __name__ == "__main__":
                 str(test_lib_path),
             ] + extra_args
             if gc_type:
-                cmd += ["-g", gc_type]
+                cmd += [f"--{gc_type}"]
             print(extra_args)
             print(f"Running: {' '.join(cmd)}")
             result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -402,6 +405,8 @@ if __name__ == "__main__":
             base = "arena"
         elif "rc" in stem:
             base = "rc"
+        elif "semispace" in stem:
+            base = "semispace"
         else:
             base = Path(csv_file).stem
 

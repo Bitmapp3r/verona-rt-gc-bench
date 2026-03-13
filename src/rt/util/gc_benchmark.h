@@ -507,13 +507,13 @@ namespace verona::rt::api
     if (count_by_type.size() > 1)
     {
       std::cout << "\nPer-Region Type:\n";
-      const char* type_names[] = {"Trace", "Arena", "Rc"};
+      const char* type_names[] = {"Trace", "Arena", "Rc", "Semispace"};
       for (const auto& [type_id, count] : count_by_type)
       {
         uint64_t total = total_by_type[type_id];
         uint64_t avg = count > 0 ? total / count : 0;
         const char* name =
-          (type_id >= 0 && type_id < 3) ? type_names[type_id] : "Unknown";
+          (type_id >= 0 && type_id < 4) ? type_names[type_id] : "Unknown";
         std::cout << "  " << std::left << std::setw(6) << name << " - " << count
                   << " calls, " << total << " ns total, " << avg << " ns avg\n";
       }
@@ -537,8 +537,8 @@ namespace verona::rt::api
       if (!all_gc_measurements_with_type.empty())
       {
         int region_type = (int)all_gc_measurements_with_type[0].second;
-        const char* type_names[] = {"trace", "arena", "rc"};
-        if (region_type >= 0 && region_type < 3)
+        const char* type_names[] = {"trace", "arena", "rc", "semispace"};
+        if (region_type >= 0 && region_type < 4)
           region_type_str = std::string("_") + type_names[region_type];
         else
           region_type_str = "_unknown";
