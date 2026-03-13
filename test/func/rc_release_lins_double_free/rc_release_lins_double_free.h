@@ -5,8 +5,6 @@
 
 #include "../memory/memory.h"
 
-#include <vector>
-
 /**
  * This tests that objects on the lins stack with a refcount of 1 are attempted
  * to be deallocated only once when we release their region. release_cycles()
