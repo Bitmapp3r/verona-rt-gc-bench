@@ -37,4 +37,5 @@
   { \
     SystematicTestHarness harness(argc, argv); \
     harness.run([&]() { run_benchmark(argc, argv); }); \
+    return 0; \
   }
