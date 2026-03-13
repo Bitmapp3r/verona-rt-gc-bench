@@ -3,14 +3,19 @@
 GC Benchmark Visualizer - runs a test and visualizes the auto-generated CSV files
 
 Usage:
-  python benchmark_visualizer.py <test_name> [args...]
-  python benchmark_visualizer.py <test_name> --sys [args...]
+    python benchmark_visualizer.py <test_name> [args...]
+    python benchmark_visualizer.py <test_name> --sys [args...]
+    python benchmark_visualizer.py <test_name> --run_all [args...]
+    python benchmark_visualizer.py [runs] [warmup_runs] <test_name> [args...]
+    python benchmark_visualizer.py --csv <folder_name>
 
 Examples:
-  python benchmark_visualizer.py gol
-  python benchmark_visualizer.py reproduction --seed 42
-  python benchmark_visualizer.py bag --sys
-  python benchmark_visualizer.py bag --run_all
+    python benchmark_visualizer.py gol
+    python benchmark_visualizer.py reproduction --seed 42
+    python benchmark_visualizer.py bag --sys
+    python benchmark_visualizer.py bag --run_all
+    python benchmark_visualizer.py 10 2 gol --sys --seed 42
+    python benchmark_visualizer.py --csv benchmarks-con-gol_lib
 """
 
 import math
@@ -344,7 +349,7 @@ if __name__ == "__main__":
             sys.exit(1)
 
         if run_all:
-            gc_types = ["trace", "rc", "arena"]
+            gc_types = ["trace", "rc", "arena", "semispace"]
         else:
             gc_types = [None]
 
