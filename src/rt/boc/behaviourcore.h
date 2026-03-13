@@ -485,13 +485,13 @@ namespace verona::rt
                 << " Pending dependencies: "
                 << b.exec_count_down.load(std::memory_order_acquire) << " ";
     }
-
+public:
     Work* as_work()
     {
       return pointer_offset_signed<Work>(
         this, -static_cast<ptrdiff_t>(sizeof(Work)));
     }
-
+private:
     /**
      * Remove `n` from the exec_count_down.
      */

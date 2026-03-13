@@ -5,6 +5,8 @@
 #include "freeze.h"
 #include "region.h"
 
+#include <debug/logging.h>
+
 namespace verona::rt::api
 {
   namespace internal
@@ -82,6 +84,7 @@ namespace verona::rt::api
     {
       case RegionType::Trace:
       case RegionType::Arena:
+      case RegionType::SemiSpace:
         break;
       case RegionType::Rc:
         ((RegionRc*)md)->open(r);
@@ -101,6 +104,7 @@ namespace verona::rt::api
     {
       case RegionType::Trace:
       case RegionType::Arena:
+      case RegionType::SemiSpace:
         break;
       case RegionType::Rc:
         ((RegionRc*)md)->close(RegionContext::get_entry_point());
@@ -159,6 +163,8 @@ namespace verona::rt::api
         return r;
       case RegionType::Rc:
         abort();
+      case RegionType::SemiSpace:
+        abort(); // Merge not supported for semi-space regions
     }
     abort();
   }
@@ -202,9 +208,40 @@ namespace verona::rt::api
         return RegionArena::alloc(RegionContext::get_entry_point(), d);
       case RegionType::Rc:
         return RegionRc::alloc((RegionRc*)RegionContext::get_region(), d);
+      case RegionType::SemiSpace:
+      {
+        // The iso root is pinned on the heap and never moves during
+        // growth, so no entry-point adjustment is needed.
+        return RegionSemiSpace::alloc(
+          RegionContext::get_entry_point(), d);
+      }
     }
     // Unreachable as case is exhaustive
     abort();
+  }
+
+  /**
+   * Ensure that at least `bytes` of bump-allocation capacity is
+   * available in the current SemiSpace region's from-space.
+   *
+   * If the space needs to grow, it grows now (moving existing
+   * objects), so the caller must call get_root() / get_entry_point()
+   * afterwards to obtain the updated root pointer.  After that,
+   * subsequent allocations totalling up to `bytes` are guaranteed
+   * not to trigger another growth, keeping all returned pointers
+   * valid.
+   *
+   * Only meaningful for SemiSpace regions; asserts on other types.
+   **/
+  inline void region_ensure_available(size_t bytes)
+  {
+    assert(
+      Region::get_type(RegionContext::get_region()) == RegionType::SemiSpace);
+
+    // The iso root is pinned on the heap and never moves during
+    // growth, so no entry-point adjustment is needed.
+    RegionSemiSpace::ensure_available(
+      RegionContext::get_entry_point(), bytes);
   }
 
   inline void add_reference(Object*)
@@ -226,7 +263,10 @@ namespace verona::rt::api
   inline void decref(Object* o)
   {
     assert(Region::get_type(RegionContext::get_region()) == RegionType::Rc);
-    RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
+
+    with_region_stats(RegionContext::get_region(), "Decref", [&]() {
+      RegionRc::decref(o, (RegionRc*)RegionContext::get_region());
+    });
   }
 
   template<typename T = Object>
@@ -243,6 +283,9 @@ namespace verona::rt::api
         break;
       case RegionType::Rc:
         entry_point = RegionRc::create(d);
+        break;
+      case RegionType::SemiSpace:
+        entry_point = RegionSemiSpace::create(d);
         break;
     }
     return {reinterpret_cast<T*>(entry_point)};
@@ -261,33 +304,49 @@ namespace verona::rt::api
       case RegionType::Rc:
         abort(); // TODO
         break;
+      case RegionType::SemiSpace:
+        RegionSemiSpace::swap_root(RegionContext::get_entry_point(), o);
+        break;
     }
     RegionContext::get_entry_point() = o;
   }
 
   inline void region_collect()
   {
-    switch (Region::get_type(RegionContext::get_region()))
-    {
-      case RegionType::Trace:
-        // Other roots?
-        RegionTrace::gc(RegionContext::get_entry_point());
-        break;
-      case RegionType::Arena:
-        // Nothing to collect here!
-        break;
-      case RegionType::Rc:
-        RegionRc::gc_cycles(
-          RegionContext::get_entry_point(),
-          (RegionRc*)RegionContext::get_region());
-        break;
-    }
+    RegionType type = Region::get_type(RegionContext::get_region());
+    Object* entry = RegionContext::get_entry_point();
+
+    if (type == RegionType::Arena)
+      return; // Arena has no GC to collect; skip measurement overhead.
+
+    with_region_stats(RegionContext::get_region(), "Region collect", [&]() {
+      switch (type)
+      {
+        case RegionType::Trace:
+          RegionTrace::gc(entry);
+          break;
+        case RegionType::Rc:
+          RegionRc::gc_cycles(
+            entry,
+            (RegionRc*)RegionContext::get_region());
+          break;
+        case RegionType::SemiSpace:
+          RegionSemiSpace::gc(
+            entry,
+            (RegionSemiSpace*)RegionContext::get_region());
+          break;
+        default:
+          break;
+      }
+    });
   }
 
   template<typename T = Object>
   inline void region_release(Object* r)
   {
-    Region::release(r);
+    with_region_stats(r->get_region(), "Region release", [&]() {
+          Region::release(r);
+        });
   }
 
   /**
@@ -317,8 +376,74 @@ namespace verona::rt::api
         return count;
       case RegionType::Rc:
         return ((RegionRc*)r)->get_region_size();
+      case RegionType::SemiSpace:
+        for (auto p : *((RegionSemiSpace*)r))
+        {
+          UNUSED(p);
+          count++;
+        }
+        return count;
       default:
         abort();
     }
+  }
+
+  /**
+   * Return the memory used by the current region in bytes.
+   *
+   * For testing and debugging purposes only.
+   **/
+  inline size_t debug_memory_used()
+  {
+    RegionBase* r = RegionContext::get_region();
+    switch (Region::get_type(r))
+    {
+      case RegionType::Trace:
+        return ((RegionTrace*)r)->get_current_memory_used();
+      case RegionType::Arena:
+        return ((RegionArena*)r)->get_current_memory_used();
+      case RegionType::Rc:
+        return ((RegionRc*)r)->get_current_memory_used();
+      case RegionType::SemiSpace:
+        return ((RegionSemiSpace*)r)->get_current_memory_used();
+      default:
+        abort();
+    }
+  }
+
+  /**
+   * Return the current semi-space size for a SemiSpace region.
+   * Aborts if called on a non-SemiSpace region.
+   * For testing and debugging purposes only.
+   **/
+  inline size_t debug_semispace_size()
+  {
+    RegionBase* r = RegionContext::get_region();
+    assert(Region::get_type(r) == RegionType::SemiSpace);
+    return ((RegionSemiSpace*)r)->get_semispace_size();
+  }
+
+  /**
+   * Return the number of objects in the large object list.
+   * Aborts if called on a non-SemiSpace region.
+   * For testing and debugging purposes only.
+   **/
+  inline size_t debug_large_object_count()
+  {
+    RegionBase* r = RegionContext::get_region();
+    assert(Region::get_type(r) == RegionType::SemiSpace);
+    return ((RegionSemiSpace*)r)->get_large_object_count();
+  }
+
+  /**
+   * Return the number of bytes used in from-space.
+   * Aborts if called on a non-SemiSpace region.
+   * For testing and debugging purposes only.
+   **/
+  inline size_t debug_fromspace_used()
+  {
+    RegionBase* r = RegionContext::get_region();
+    assert(Region::get_type(r) == RegionType::SemiSpace);
+    return ((RegionSemiSpace*)r)->get_fromspace_used();
   }
 } // namespace verona::rt

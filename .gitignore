@@ -7,3 +7,9 @@ CMakeFiles/
 /Testing/
 compile_commands.json
 .*.swp
+/.idea/*
+/_deps/
+.zed/
+.cache/
+/src/CSVs
+CSVs/

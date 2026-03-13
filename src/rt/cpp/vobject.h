@@ -35,6 +35,13 @@ namespace verona::rt
   struct has_finaliser<T, std::void_t<decltype(&T::finaliser)>> : std::true_type
   {};
 
+  template<class T, class = void>
+  struct has_relocate : std::false_type
+  {};
+  template<class T>
+  struct has_relocate<T, std::void_t<decltype(&T::relocate)>> : std::true_type
+  {};
+
   template<class T>
   struct has_destructor
   {
@@ -81,6 +88,17 @@ namespace verona::rt
       ((T*)o)->~T();
     }
 
+    static void gc_relocate(Object* o, Object* (*forward)(Object*))
+    {
+      if constexpr (has_relocate<T>::value)
+        ((T*)o)->relocate(forward);
+      else
+      {
+        UNUSED(o);
+        UNUSED(forward);
+      }
+    }
+
     void trace(ObjectStack&) {}
 
   public:
@@ -93,7 +111,8 @@ namespace verona::rt
         gc_trace,
         has_finaliser<T>::value ? gc_final : nullptr,
         has_notified<T>::value ? gc_notified : nullptr,
-        has_destructor<T>::value ? gc_destructor : nullptr};
+        has_destructor<T>::value ? gc_destructor : nullptr,
+        has_relocate<T>::value ? gc_relocate : nullptr};
 
       return &desc;
     }

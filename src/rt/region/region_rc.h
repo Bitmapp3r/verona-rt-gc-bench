@@ -70,6 +70,11 @@ namespace verona::rt
       return region_size;
     }
 
+    size_t get_current_memory_used() const
+    {
+      return current_memory_used;
+    }
+
     inline static bool is_rc_region(Object* o)
     {
       return o->is_type(desc());
@@ -267,7 +272,6 @@ namespace verona::rt
             assert(0);
           case Object::MARKED:
           case Object::UNMARKED:
-            // FIXME: we need to ensure decrefing removes from the lins q
             if (decref_inner(f))
             {
               f->trace(dfs);
@@ -276,6 +280,21 @@ namespace verona::rt
                 f->finalise(o, collect);
               }
               gc.push(f);
+              // Mark the object so that release_cycles skips it when draining
+              // the lins_stack. Without this, an object that was pushed to
+              // lins_stack before release and then had its RC brought to 0 here
+              // would appear UNMARKED (due to gc.push's init_next) and be added
+              // to gc a second time, causing a double-free.
+              f->mark();
+            }
+            else
+            {
+              // RC is still > 0 after decrementing, meaning this object
+              // may be part of a cycle reachable from the entry point.
+              // Push it onto the lins_stack so that release_cycles can
+              // find and free it, matching the behaviour of
+              // dealloc_object().
+              lins_stack.push(f);
             }
             break;
           case Object::SCC_PTR:
@@ -561,6 +580,7 @@ namespace verona::rt
       {
         Object* o = gc.pop();
         reg->region_size -= 1;
+        reg->current_memory_used -= o->size();
         o->destructor();
         o->dealloc();
       }
@@ -640,6 +660,7 @@ namespace verona::rt
       {
         Object* o = gc.pop();
         reg->region_size -= 1;
+        reg->current_memory_used -= o->size();
         // Remove from the Lins stack before freeing to prevent gc_cycles
         // from later processing a stale (dangling) pointer.
         reg->lins_stack.remove(o);

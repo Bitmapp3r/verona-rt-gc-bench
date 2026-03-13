@@ -65,6 +65,11 @@ namespace verona::rt
 
     // Memory usage in the region.
     size_t current_memory_used = 0;
+    size_t memory_at_last_gc = 0;
+    size_t closes_since_gc = 0;
+
+    // Number of objects in the region (O(1) access).
+    size_t region_size = 0;
 
     // Compact representation of previous memory used as a sizeclass.
     snmalloc::sizeclass_t previous_memory_used;
@@ -97,6 +102,16 @@ namespace verona::rt
       return o->is_type(desc());
     }
 
+    size_t get_current_memory_used() const
+    {
+      return current_memory_used;
+    }
+
+    size_t get_region_size() const
+    {
+      return region_size;
+    }
+
     /**
      * Creates a new trace region by allocating Object `o` of type `desc`. The
      * object is initialised as the Iso object for that region, and points to a
@@ -123,6 +138,7 @@ namespace verona::rt
       reg->init_next(o);
       o->init_iso();
       o->set_region(reg);
+      reg->region_size += 1;
 
       assert(Object::debug_is_aligned(o));
       return o;
@@ -159,6 +175,7 @@ namespace verona::rt
 
       // GC heuristics.
       reg->use_memory(desc->size);
+      reg->region_size += 1;
       return o;
     }
 
@@ -229,6 +246,31 @@ namespace verona::rt
 
       RegionTrace* reg = get(prev);
       reg->swap_root_internal(prev, next);
+    } 
+
+    static bool gc_condition(Object* o) {
+      assert(o->debug_is_iso());
+      assert(is_trace_region(o->get_region()));
+
+      RegionTrace* reg = get(o);
+      std::cout << "Region: " << reg << ", ";
+      if (reg->closes_since_gc > 3) {
+        std::cout << "GC CONDITION TRUE 1 " << reg->closes_since_gc << "\n";
+        return true;
+      }
+      size_t cur = reg->get_current_memory_used();
+      size_t last = reg->memory_at_last_gc;
+      Logging::cout() << "CHECKING GC CONDITION: cur=" << cur << ", last=" << last << "\n";
+      if (cur - last > 1000) {
+        std::cout << "GC CONDITION TRUE 2 " << reg->closes_since_gc << "\n";
+        reg->closes_since_gc = 0;
+        return true;
+      }
+  
+      reg->closes_since_gc++;
+      std::cout << "GC CONDITION FALSE 3 " << reg->closes_since_gc << "\n";
+  
+      return false;
     }
 
     /**
@@ -241,8 +283,9 @@ namespace verona::rt
       Logging::cout() << "Region GC called for: " << o << Logging::endl;
       assert(o->debug_is_iso());
       assert(is_trace_region(o->get_region()));
-
+      
       RegionTrace* reg = get(o);
+      
       ObjectStack f;
       ObjectStack collect;
 
@@ -254,6 +297,7 @@ namespace verona::rt
 
       reg->mark(o, f);
       reg->sweep(o, collect);
+      reg->memory_at_last_gc = reg->get_current_memory_used();
 
       // `collect` contains all the iso objects to unreachable subregions.
       // Since they are unreachable, we can just release them.
@@ -346,8 +390,9 @@ namespace verona::rt
       if (head != other)
         append(head, other->last_not_root);
 
-      // Update memory usage.
+      // Update memory usage and region size.
       current_memory_used += other->current_memory_used;
+      region_size += other->region_size;
 
       previous_memory_used = size_to_sizeclass_full(
         sizeclass_full_to_size(other->previous_memory_used) +
@@ -449,8 +494,6 @@ namespace verona::rt
     template<SweepAll sweep_all = SweepAll::No>
     void sweep(Object* o, ObjectStack& collect)
     {
-      current_memory_used = 0;
-
       RingKind primary_ring = o->is_trivial() ? TrivialRing : NonTrivialRing;
 
       // We sweep the non-trivial ring first, as finalisers in there could refer
@@ -489,6 +532,8 @@ namespace verona::rt
         if (p->has_ext_ref())
           ExternalReferenceTable::erase(p);
 
+        current_memory_used -= p->size();
+        region_size -= 1;
         p->dealloc();
       }
       else
@@ -576,6 +621,8 @@ namespace verona::rt
         while (!gc.empty())
         {
           Object* q = gc.pop();
+          current_memory_used -= q->size();
+          region_size -= 1;
           q->destructor();
           q->dealloc();
         }

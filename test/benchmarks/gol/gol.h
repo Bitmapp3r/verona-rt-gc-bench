@@ -1,0 +1,191 @@
+// Copyright Microsoft and Project Verona Contributors.
+// SPDX-License-Identifier: MIT
+
+/**
+ * This test simulates Conway's Game of Life on a toroidal grid within a single
+ * region. The simulation starts with an R-pentomino pattern and runs for a
+ * specified number of generations.
+ *
+ * Each generation applies the standard rules (birth on 3 neighbors, survival on
+ * 2-3 neighbors) and intentionally allocates new Cell objects for all surviving
+ * cells, creating garbage from the previous generation's cells.
+ *
+ * This tests region-based GC effectiveness by forcing collection of dead cells
+ * after each generation and verifying the heap size matches the expected number
+ * of live cells.
+ **/
+
+#pragma once
+
+#include <debug/harness.h>
+#include <iostream>
+#include <vector>
+#include <verona.h>
+
+using namespace snmalloc;
+using namespace verona::rt;
+using namespace verona::rt::api;
+
+namespace gol
+{
+  struct Cell : public V<Cell>
+  {
+    int x, y;
+    Cell(int x_, int y_) : x(x_), y(y_) {}
+    void trace(ObjectStack& st) const {}
+
+    // SemiSpace GC: Cell has no pointer fields, nothing to forward.
+    void relocate(Object* (*)(Object*)) {}
+  };
+
+  struct SimRoot : public V<SimRoot>
+  {
+    std::vector<Cell*> live_cells;
+
+    void trace(ObjectStack& st) const
+    {
+      for (auto* c : live_cells)
+      {
+        if (c)
+          st.push(c);
+      }
+    }
+
+    // SemiSpace GC: forward every Cell* in the live_cells vector.
+    void relocate(Object* (*fwd)(Object*))
+    {
+      for (auto*& c : live_cells)
+      {
+        if (c)
+          c = (Cell*)fwd(c);
+      }
+    }
+  };
+
+  inline int
+  count_neighbors(const std::vector<Cell*>& grid, int size, int x, int y)
+  {
+    int count = 0;
+    for (int dy = -1; dy <= 1; dy++)
+    {
+      for (int dx = -1; dx <= 1; dx++)
+      {
+        if (dx == 0 && dy == 0)
+          continue;
+        int nx = (x + dx + size) % size;
+        int ny = (y + dy + size) % size;
+        if (grid[ny * size + nx] != nullptr)
+          count++;
+      }
+    }
+    return count;
+  }
+
+  template<RegionType rt>
+  void run_test(int size, int generations)
+  {
+    std::cout << "[gol] Using region type: ";
+    switch (rt)
+    {
+      case RegionType::Trace:
+        std::cout << "Trace";
+        break;
+      case RegionType::Arena:
+        std::cout << "Arena";
+        break;
+      case RegionType::Rc:
+        std::cout << "Rc";
+        break;
+      case RegionType::SemiSpace:
+        std::cout << "SemiSpace";
+        break;
+      default:
+        std::cout << "Unknown";
+        break;
+    }
+    std::cout << std::endl;
+    // Use our new container root
+    auto* root = new (rt) SimRoot();
+
+    {
+      UsingRegion rr(root);
+
+      std::vector<Cell*> current_grid(size * size, nullptr);
+      std::vector<Cell*> next_grid(size * size, nullptr);
+
+      auto set_cell = [&](int x, int y) {
+        if (x < size && y < size)
+          current_grid[y * size + x] = new Cell(x, y);
+      };
+
+      // Initialize R-pentomino pattern
+      int cx = size / 2;
+      int cy = size / 2;
+      set_cell(cx + 1, cy);
+      set_cell(cx + 2, cy);
+      set_cell(cx, cy + 1);
+      set_cell(cx + 1, cy + 1);
+      set_cell(cx + 1, cy + 2);
+
+      root->live_cells = current_grid;
+      for (int gen = 0; gen < generations; gen++)
+      {
+        for (int y = 0; y < size; y++)
+        {
+          for (int x = 0; x < size; x++)
+          {
+            int neighbors = count_neighbors(current_grid, size, x, y);
+            Cell* current_cell = current_grid[y * size + x];
+
+            if (current_cell)
+            {
+              // Survive Rule (Allocates NEW to create garbage)
+              if (neighbors == 2 || neighbors == 3)
+                next_grid[y * size + x] = new Cell(x, y);
+              else
+                next_grid[y * size + x] = nullptr;
+            }
+            else
+            {
+              // Birth Rule
+              if (neighbors == 3)
+                next_grid[y * size + x] = new Cell(x, y);
+              else
+                next_grid[y * size + x] = nullptr;
+            }
+          }
+        }
+
+        // For RC: decref old cells before overwriting live_cells, since
+        // the old cells lose their only in-region reference. Each cell was
+        // created with rc=1 covering the live_cells reference; decref → 0
+        // triggers immediate deallocation.
+        if constexpr (rt == RegionType::Rc)
+        {
+          for (auto* c : root->live_cells)
+          {
+            if (c)
+              decref(c);
+          }
+        }
+
+        current_grid = next_grid;
+        root->live_cells = current_grid;
+        region_collect();
+
+        // SemiSpace GC: region_collect() may relocate Cell objects.
+        // Re-read current_grid from root->live_cells (which was updated
+        // by SimRoot::relocate()) so we don't use stale pointers.
+        current_grid = root->live_cells;
+
+        int actual_alive_count = 0;
+        for (auto* c : current_grid)
+        {
+          if (c)
+            actual_alive_count++;
+        }
+      }
+    }
+    region_release(root);
+  }
+}
