@@ -145,11 +145,7 @@ namespace verona::rt
         break;
       case RegionType::SemiSpace:
         mem_before = ((RegionSemiSpace*)r)->get_current_memory_used();
-        for (auto p : *((RegionSemiSpace*)r))
-        {
-          UNUSED(p);
-          obj_before++;
-        }
+        obj_before = ((RegionSemiSpace*)r)->get_region_size();
         break;
     }
 

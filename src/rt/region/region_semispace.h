@@ -74,6 +74,9 @@ namespace verona::rt
     /// Total memory used by objects (for metrics).
     size_t current_memory_used = 0;
 
+    /// Number of objects currently in the region (for metrics).
+    size_t region_size = 0;
+
     /// Linked list of large objects (too big for semi-space).
     /// Uses Object::next pointers. Null-terminated.
     Object* large_objects = nullptr;
@@ -140,6 +143,11 @@ namespace verona::rt
     size_t get_current_memory_used() const
     {
       return current_memory_used;
+    }
+
+    size_t get_region_size() const
+    {
+      return region_size;
     }
 
     /**
@@ -213,6 +221,7 @@ namespace verona::rt
       iso->set_region(reg);
       reg->pinned_iso_ = iso;
       reg->current_memory_used += desc->size;
+      reg->region_size += 1;
 
       return iso;
     }
@@ -530,12 +539,14 @@ namespace verona::rt
 
       // Update memory used: pinned root + from-space live data + large objects.
       reg->current_memory_used = o->size();
+      reg->region_size = 1;
       {
         std::byte* p = reg->from_space;
         while (p < reg->alloc_ptr)
         {
           Object* obj = Object::object_start(p);
           reg->current_memory_used += obj->size();
+          reg->region_size += 1;
           p += snmalloc::bits::align_up(obj->size(), Object::ALIGNMENT);
         }
         // Add large objects.
@@ -543,6 +554,7 @@ namespace verona::rt
         while (lo != nullptr)
         {
           reg->current_memory_used += lo->size();
+          reg->region_size += 1;
           lo = lo->get_next();
         }
       }
@@ -566,6 +578,7 @@ namespace verona::rt
     {
       size_t sz = snmalloc::bits::align_up(desc->size, Object::ALIGNMENT);
       current_memory_used += desc->size;
+      region_size += 1;
 
       if (sz > LARGE_OBJECT_THRESHOLD)
       {
