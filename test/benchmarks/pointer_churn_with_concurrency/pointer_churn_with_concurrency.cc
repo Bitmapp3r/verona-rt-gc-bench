@@ -60,7 +60,7 @@ extern "C" EXPORT int run_benchmark(int argc, char** argv)
 
   // Run test with selected GC type and parameters
   SystematicTestHarness harness(argc, argv);
-  harness.run(pointer_churn_with_concurrency::run_test, 500, 1000, 0, 10, 50);
+  harness.run(pointer_churn_with_concurrency::run_test, 500, 10, 2, 3, 20);
 
   return 0;
 }

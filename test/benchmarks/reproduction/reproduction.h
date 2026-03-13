@@ -192,7 +192,8 @@ namespace reproduction
   template<RegionType rt>
   void run_test(int generations, int killPercent, int popSize, size_t seed = 0)
   {
-    
+    //std::cout << 
+
     auto species1 = make_cown<Species>(rt);
     when(species1) << [=](auto s) {
       //s->root = new (rt) Organism();

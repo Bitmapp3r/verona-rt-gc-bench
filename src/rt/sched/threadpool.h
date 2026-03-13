@@ -78,18 +78,22 @@ namespace verona::rt
 
     ThreadState state;
 
+    
     /// Pool of cores shared by the scheduler threads.
     CorePool<ThreadPool<T>> core_pool;
-
+    
     /// Systematic ids.
     std::atomic<size_t> systematic_ids = 0;
-
-  public:
+    
+    public:
+    
     static ThreadPool<T>& get()
     {
       SNMALLOC_REQUIRE_CONSTINIT static ThreadPool<T> global_thread_pool;
       return global_thread_pool;
     }
+
+
 
     static Core* first_core()
     {

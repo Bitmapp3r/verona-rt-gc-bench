@@ -109,6 +109,7 @@ namespace pointer_churn_with_concurrency
   cown_ptr<RegionCown> create_cown(size_t cown_num)
   {
       Region* graphRegion = new (RT) Region();
+      std::cout << "New Region: " << graphRegion << "\n";
       auto cown = make_cown<RegionCown>(graphRegion, cown_num);
       return cown;
   }
@@ -116,9 +117,9 @@ namespace pointer_churn_with_concurrency
   template<RegionType RT>
   void create_chain(size_t num_nodes, size_t inputSeed, size_t cown_num, Region*& graphRegion)
   {
-      std::cout << "\n" << std::string(60, '=') << "\n";
-      std::cout << "  REGION #" << cown_num << "\n";
-      std::cout << std::string(60, '=') << "\n\n";
+     // std::cout << "\n" << std::string(60, '=') << "\n";
+     // std::cout << "  REGION #" << cown_num << "\n";
+     // std::cout << std::string(60, '=') << "\n\n";
 
       {
         UsingRegion ur(graphRegion);
@@ -154,8 +155,8 @@ namespace pointer_churn_with_concurrency
 
         if (reachableNodes.size() == 1)
         {
-          std::cout << "\n    Only root node remaining, closing and "
-                       "releasing region...\n";
+         // std::cout << "\n    Only root node remaining, closing and "
+         //              "releasing region...\n";
           break;
         }
 
@@ -193,21 +194,21 @@ namespace pointer_churn_with_concurrency
             {
               decref(oldEdgeDstNode); // Ref count adjustment for RC
             }
-            std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": "
-                      << oldId << " → " << newEdgeDstNode->id << "\n";
+           // std::cout << "  [UPDATE] Node " << edgeSrcNode->id << ": "
+           //           << oldId << " → " << newEdgeDstNode->id << "\n";
           }
           else
           {
-            std::cout << "  [ADD]    Node " << edgeSrcNode->id << " → Node "
-                      << newEdgeDstNode->id << "\n";
+          //  std::cout << "  [ADD]    Node " << edgeSrcNode->id << " → Node "
+          //            << newEdgeDstNode->id << "\n";
           }
         }
         else // Remove edge
         {
           if (oldEdgeDstNode == nullptr)
           {
-            std::cout << "  [SKIP]   No edge to remove from edge index "
-                      << edgeIdx << " of Node " << edgeSrcNode->id << "\n";
+           // std::cout << "  [SKIP]   No edge to remove from edge index "
+           //           << edgeIdx << " of Node " << edgeSrcNode->id << "\n";
           }
           else
           {
@@ -218,8 +219,8 @@ namespace pointer_churn_with_concurrency
             {
               decref(oldEdgeDstNode); // Ref count adjustment for RC
             }
-            std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " ╳→ Node "
-                      << oldId << "\n";
+           // std::cout << "  [REMOVE] Node " << edgeSrcNode->id << " ╳→ Node "
+           //           << oldId << "\n";
           }
         }
         num_mutations--;
@@ -249,9 +250,9 @@ namespace pointer_churn_with_concurrency
     const size_t seed = inputSeed + static_cast<size_t>(RT) * 10000;
     std::mt19937 rng(seed);
     
-    for (size_t i = 0; i < iterations; i++)
+    for (size_t cown_num = 0; cown_num < num_regions; cown_num++)
     {
-      for (size_t cown_num = 0; cown_num < num_regions; cown_num++)
+      for (size_t i = 0; i < iterations; i++)
       {
         when(cowns[cown_num])
           << [=](auto c) {

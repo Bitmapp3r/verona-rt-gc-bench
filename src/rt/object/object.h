@@ -451,7 +451,7 @@ namespace verona::rt
         (_class == RegionMD::UNMARKED) ||
         (_class == RegionMD::PENDING) || (_class == RegionMD::ISO));
 
-      return (Object*)(get_header().bits & ~MASK);
+      return (Object*)(get_header().rc.load() & ~MASK);
     }
 
     inline size_t get_ref_count()
@@ -699,7 +699,8 @@ namespace verona::rt
     inline void unmark()
     {
       assert(get_class() == RegionMD::MARKED);
-      get_header().bits &= ~(size_t)RegionMD::MARKED;
+      get_header().rc.store(get_header().rc.load() & ~(size_t)RegionMD::MARKED);
+      //get_header().bits &= ~(size_t)RegionMD::MARKED;
     }
 
     inline bool is_opened()

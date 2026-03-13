@@ -9,6 +9,7 @@
 #include <debug/logging.h>
 #include <functional>
 #include <atomic>
+#include <sstream>
 
 namespace verona::rt::api
 {
@@ -126,12 +127,18 @@ namespace verona::rt::api
   /*
   create openRegion for GC function where the parameter is the region. not the iso object. so no need ot call getRegion
   */
-  
+  static const auto start_time = std::chrono::system_clock::now();  
 
   inline bool open_region_gc(Object* r, RegionBase* reg) 
   {
     RegionBase* md = r->acq_region();
-    std::cout << "OPEN REGION (" << r << ") GC\n";
+    auto now = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = now- start_time;
+    //std::cout << elapsed_seconds.count() <<": CLOSE REGION (" << entry << ")\n";
+    std::stringstream ss;
+//ss << "OPEN REGION (" << ptr << ") GC\n";
+    ss << elapsed_seconds.count() << ": OPEN REGION (" << r << ") GC\n";
+    std::cout << ss.str();
     RegionContext::push(r, md);
     return true;
      
@@ -144,7 +151,13 @@ namespace verona::rt::api
   inline bool open_region(Object* r)
   {
     RegionBase* md = r->acq_region();
-    std::cout << "OPEN REGION (" << r <<")\n";
+    auto now = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = now- start_time;
+    //std::cout << elapsed_seconds.count() <<": CLOSE REGION (" << entry << ")\n";
+    std::stringstream ss;
+    //ss << "OPEN REGION (" << ptr << ") GC\n";
+    ss << elapsed_seconds.count() << ": OPEN REGION (" << r <<")\n";
+    std::cout << ss.str();
     RegionContext::push(r, md);
     return true;
   }
@@ -189,10 +202,13 @@ inline size_t debug_size();
 
 inline void schedule_gc(RegionBase* reg, Object* entry) { // FIX THIS FUNCtiON ASWELL!!!!!
     //auto reg = entry->get_region();
-    
+    bool e = false;
+    if (!reg->gc_scheduled.compare_exchange_strong(e, true)) {
+   //   return;
+    } 
     // Early exit if the region is already dead before we even schedule
-    if (!reg->isAlive.load(/*std::memory_order_relaxed*/)) {
-      return;
+    if (!reg->isAlive.load(/*std::memory_order_relryuaxed*/)) {
+      //return;
     }
 
     auto gc_task = [reg, entry]() {
@@ -224,6 +240,7 @@ inline void schedule_gc(RegionBase* reg, Object* entry) { // FIX THIS FUNCtiON A
       }
 
 task_dec:
+      reg->gc_scheduled.store(false);
       // CRITICAL PATH: This always runs, preventing the "Early Return Leak"
       if (reg->task_dec()) {
         Logging::cout() << "Refcount hit 0 in GC Task. Physically releasing region.\n";
@@ -261,7 +278,13 @@ task_dec:
     auto md = RegionContext::get_region();
     Object* entry = RegionContext::get_entry_point();
 
-    std::cout << "CLOSE REGION (" << entry << ") GC\n";
+    auto now = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = now- start_time;
+   // std::cout << elapsed_seconds.count() <<": CLOSE REGION (" << entry << ")\n";
+    std::stringstream ss;
+    
+    ss << elapsed_seconds.count() << ": CLOSE REGION (" << entry << ") GC\n";
+    std::cout << ss.str();
     entry->rel_region(md);
 
     /*
@@ -284,7 +307,7 @@ task_dec:
     // bool success = md->state.compare_exchange_strong(expected, RegionBase::Closed);
     // assert(success && "Fatal: Region was not Collecting when trying to close for GC");
   }
-
+  
   /**
    * Close current region
    */
@@ -300,8 +323,11 @@ task_dec:
     if (forWork && Scheduler::do_concurrentGC()) {
       schedule_gc(md, entry);
     }
-    
-    std::cout << "CLOSE REGION (" << entry << ")\n";
+    auto now = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = now- start_time;
+    std::stringstream ss;
+    ss << elapsed_seconds.count() <<": CLOSE REGION (" << entry << ")\n";
+    std::cout << ss.str();
     entry->rel_region(md);
     /*
     switch (Region::get_type(md))

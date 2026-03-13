@@ -57,6 +57,7 @@ namespace verona::rt
     std::atomic<ConcurrentState> state{Closed};
     std::atomic<size_t> owners{1};
     std::atomic<bool> isAlive{true};
+    std::atomic<bool> gc_scheduled{false};
     std::atomic<size_t> gc_fails{0};
 
     RegionBase() : Object() {
