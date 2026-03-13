@@ -16,8 +16,8 @@ This fork extends the original Verona runtime with:
   - P50 & P99 (ns)
   - Jitter
   - Avg/Peak Memory (bytes)
-2. **Concurrent GC Implementation**: WIP
-3. **Semi-space GC**: WIP
+2. **Concurrent GC Implementation**: A concurrent garbage collector that allows regions to be collected while program execution continues. Instead of requiring explicit GC calls, collection can be scheduled asynchronously to reduce manual GC management and better reflect real runtime behaviour. The implementation can be found in the concurrent-gc branch
+3. **Semi-space GC**: A copying collector based on Cheney’s algorithm using two semi-spaces. Live objects are copied to the alternate space during collection, while large objects are managed through a separate large-object list. See [region\region_semispace.h](src\rt\region\region_semispace.h).
 
 ## Benchmarks
 
